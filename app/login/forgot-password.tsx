@@ -11,8 +11,8 @@ import {
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
-import HeaderFM from '../components/HeaderFM';
-import { auth } from '../lib/firebase';
+import HeaderFM from '../../components/HeaderFM';
+import { auth } from '../../lib/firebase';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();

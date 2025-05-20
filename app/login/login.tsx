@@ -1,31 +1,30 @@
-// app/register.tsx
+// app/login.tsx
 import { useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
-import HeaderFM from '../components/HeaderFM';
-import { auth, db } from '../lib/firebase';
+import HeaderFM from '../../components/HeaderFM';
+import { auth, db } from '../../lib/firebase';
 
-export default function RegisterScreen() {
+export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [warning, setWarning] = useState('');
   const [loading, setLoading] = useState(false);
+  const [warning, setWarning] = useState('');
 
-  const validateEmail = (email: string) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const handleRegister = async () => {
+  const handleLogin = async () => {
     setWarning('');
 
     if (!email || !password) {
@@ -34,42 +33,48 @@ export default function RegisterScreen() {
     }
 
     if (!validateEmail(email)) {
-      setWarning('Ingresa un correo electrónico válido.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setWarning('La contraseña debe tener al menos 6 caracteres.');
+      setWarning('Correo inválido.');
       return;
     }
 
     setLoading(true);
 
     try {
-      const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+      const userCredential = await auth.signInWithEmailAndPassword(email, password);
       const user = userCredential.user;
 
       if (user) {
-        await db.collection('users').doc(user.uid).set({
-          correo: email,
-          fechaRegistro: new Date().toISOString(),
-          rol: 'usuario',
-          estado: 'activo',
-        });
+        const docRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(docRef);
 
-        Alert.alert('¡Registro exitoso!', 'Tu cuenta ha sido creada.');
-        router.replace('/login');
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          const rol = data.rol;
+
+          if (rol === 'tutor') {
+            router.replace('/tutor/TutorHome');
+          } else if (rol === 'admin') {
+            router.replace('/admin/AdminHome');
+          } else if (rol === 'maestro') {
+            router.replace('/maestro/MaestroHome');
+          } else {
+            setWarning('Rol de usuario desconocido.');
+          }
+        } else {
+          setWarning('No se encontró el perfil de usuario en la base de datos.');
+        }
       }
     } catch (error: any) {
       const code = error.code;
-      if (code === 'auth/email-already-in-use') {
-        setWarning('El correo ya está en uso.');
-      } else if (code === 'auth/invalid-email') {
-        setWarning('Correo electrónico inválido.');
-      } else if (code === 'permission-denied') {
-        setWarning('Cuenta creada, pero no se pudo guardar en la base de datos.');
+
+      if (code === 'auth/invalid-email') {
+        setWarning('Correo inválido.');
+      } else if (code === 'auth/wrong-password') {
+        setWarning('Contraseña incorrecta.');
+      } else if (code === 'auth/user-not-found') {
+        setWarning('Usuario no encontrado.');
       } else {
-        setWarning('Algo salió mal. Intenta de nuevo.');
+        setWarning('Algo salió mal.');
       }
     } finally {
       setLoading(false);
@@ -81,15 +86,13 @@ export default function RegisterScreen() {
       <HeaderFM />
 
       <View style={styles.content}>
-        {/* Logo */}
         <View style={styles.logoContainer}>
-          <Icon name="user-plus" size={40} color="#3A557C" style={styles.logoIcon}/>
+          <Icon name="lock" size={40} color="#3A557C" style={styles.logoIcon} />
         </View>
-        
-        <Text style={styles.title}>Crea tu cuenta</Text>
-        <Text style={styles.subtitle}>Comienza tu experiencia con nosotros</Text>
 
-        {/* Campos del formulario */}
+        <Text style={styles.title}>Bienvenido de vuelta</Text>
+        <Text style={styles.subtitle}>Ingresa tus credenciales para continuar</Text>
+
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Correo electrónico</Text>
           <TextInput
@@ -107,8 +110,8 @@ export default function RegisterScreen() {
           <Text style={styles.label}>Contraseña</Text>
           <View style={styles.passwordContainer}>
             <TextInput
-              style={[styles.input, {paddingRight: 50}]}
-              placeholder="Mínimo 6 caracteres"
+              style={[styles.input, { paddingRight: 50 }]}
+              placeholder="********"
               placeholderTextColor="#9CA3AF"
               secureTextEntry={!showPassword}
               value={password}
@@ -119,14 +122,18 @@ export default function RegisterScreen() {
               onPress={() => setShowPassword(!showPassword)}
               activeOpacity={0.7}
             >
-              <Icon
-                name={showPassword ? 'eye-off' : 'eye'}
-                size={20}
-                color="#4B5563"
-              />
+              <Icon name={showPassword ? 'eye' : 'eye-off'} size={20} color="#4B5563" />
             </TouchableOpacity>
           </View>
         </View>
+
+        <TouchableOpacity
+          style={styles.forgotPassword}
+          onPress={() => router.push('/login/forgot-password')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
+        </TouchableOpacity>
 
         {warning !== '' && <Text style={styles.warning}>{warning}</Text>}
 
@@ -134,21 +141,18 @@ export default function RegisterScreen() {
           <ActivityIndicator size="large" color="#3A557C" />
         ) : (
           <>
-            <TouchableOpacity 
-              style={styles.button} 
-              onPress={handleRegister}
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleLogin}
               activeOpacity={0.7}
             >
-              <Text style={styles.buttonText}>Registrarse</Text>
+              <Text style={styles.buttonText}>Ingresar</Text>
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>¿Ya tienes cuenta?</Text>
-              <TouchableOpacity 
-                onPress={() => router.replace('/login')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.footerLink}>Iniciar sesión</Text>
+              <Text style={styles.footerText}>¿No tienes usuario?</Text>
+              <TouchableOpacity onPress={() => router.push('/login/register')} activeOpacity={0.7}>
+                <Text style={styles.footerLink}>Crear Usuario</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -157,6 +161,7 @@ export default function RegisterScreen() {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -225,6 +230,15 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  forgotPassword: {
+    alignSelf: 'flex-end', 
+    marginBottom: 20
+  },
+  forgotPasswordText: {
+    color: '#3A557C', 
+    fontSize: 14, 
+    fontWeight: '500'
   },
   warning: {
     color: '#EF4444',
