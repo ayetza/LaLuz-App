@@ -17,13 +17,15 @@ import { auth, db } from '../../lib/firebase';
 
 type AdminRoutes =
   | '/admin/Herramientas'
-  | '/admin/AccesoTutor';
+  | '/admin/Stats'
+  | '/maestro/MaestroHome';
 
 const COLORS = {
   primary: '#3A557C',
   background: '#FFFFFF',
   lightText: '#666666',
   border: '#E0E0E0',
+  text: '#222222', // Added text color
 };
 
 const carouselImages = [
@@ -40,7 +42,8 @@ type OptionItem = {
 
 const ADMIN_OPTIONS: OptionItem[] = [
   { label: 'Herramientas de Administrador', icon: 'calendar', route: '/admin/Herramientas' },
-  { label: 'Acceso de Tutor', icon: 'moon', route: '/admin/AccesoTutor' },
+  { label: 'Estadisticas', icon: 'bar-chart', route: '/admin/Stats' },
+  { label: 'Acceso Como Maestro', icon: 'user', route: '/maestro/MaestroHome' },
 ];
 
 const OptionCard = ({ item, onPress }: { item: OptionItem; onPress: () => void }) => (
@@ -113,7 +116,7 @@ export default function AdminHome() {
         <View style={styles.welcomeSection}>
           <View style={styles.welcomeContainer}>
             <Text style={styles.welcomeText}>
-              Hola de Nuevo {nombreUsuario ?? ''}
+              Hola de nuevo {nombreUsuario ?? ''}
             </Text>
             <Text style={styles.subtitle}>Panel de administración</Text>
           </View>

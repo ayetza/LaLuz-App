@@ -29,7 +29,7 @@ export default function HeaderAuth() {
           
           <TouchableOpacity
             style={styles.logoutButton}
-            onPress={() => router.replace('/login')}
+            onPress={() => router.replace('/login/login')}
           >
             <Icon name="log-out" size={20} color="#FF6B6B" />
             <Text style={styles.logoutText}>Salir</Text>
