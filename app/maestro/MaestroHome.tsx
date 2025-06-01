@@ -99,7 +99,7 @@ export default function TeacherHome() {
 
         if (docSnap.exists) {
           const data = docSnap.data();
-          const nombreCompleto = data.nombreCompleto || '';
+          const nombreCompleto = data && data.nombreCompleto ? data.nombreCompleto : '';
           const partes = nombreCompleto.trim().split(' ');
           const nombreYApellido = partes.slice(0, 2).join(' ');
           setNombreUsuario(nombreYApellido);
