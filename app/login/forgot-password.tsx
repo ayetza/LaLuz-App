@@ -1,6 +1,6 @@
 // app/forgot-password.tsx
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,19 +14,43 @@ import Icon from 'react-native-vector-icons/Feather';
 import HeaderFM from '../../components/HeaderFM';
 import { auth } from '../../lib/firebase';
 
+const COOLDOWN_TIME = 5 * 60 * 1000;
+
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState('');
-  const [success, setSuccess] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+  const [isButtonDisabled, setIsButtonDisabled] = useState(false);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (cooldown > 0) {
+      setIsButtonDisabled(true);
+      interval = setInterval(() => {
+        setCooldown(prev => {
+          if (prev <= 1000) {
+            setIsButtonDisabled(false);
+            if (interval) clearInterval(interval);
+            return 0;
+          }
+          return prev - 1000;
+        });
+      }, 1000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [cooldown]);
 
   const validateEmail = (email: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const handleResetPassword = async () => {
     setWarning('');
-    setSuccess('');
 
     if (!email) {
       setWarning('Por favor ingresa tu correo electrónico.');
@@ -38,26 +62,47 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
+    if (isButtonDisabled) return;
+
     setLoading(true);
+    // Activar cooldown inmediatamente al presionar el botón
+    setCooldown(COOLDOWN_TIME);
 
     try {
+      // Verificar si el correo está registrado
+      const methods = await auth.fetchSignInMethodsForEmail(email);
+      
+      if (methods.length === 0) {
+        // Mensaje genérico para no revelar información
+        setWarning('Recibirás un enlace de recuperación.');
+        return;
+      }
+
+      // Si está registrado, enviar el correo de restablecimiento
       await auth.sendPasswordResetEmail(email);
-      setSuccess(`Se ha enviado un enlace de recuperación a ${email}`);
+      
       Alert.alert(
-        'Correo enviado',
+        '¡Correo enviado!',
         'Revisa tu bandeja de entrada para restablecer tu contraseña.',
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error: any) {
       const code = error.code;
-      if (code === 'auth/user-not-found') {
-        setWarning('No existe una cuenta con este correo.');
+      if (code === 'auth/invalid-email') {
+        setWarning('El formato del correo es inválido');
       } else {
-        setWarning('Ocurrió un error. Intenta nuevamente.');
+        setWarning('Ocurrió un error. Intenta más tarde.');
+        console.error("Error en restablecimiento:", error);
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatTime = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
   return (
@@ -65,7 +110,6 @@ export default function ForgotPasswordScreen() {
       <HeaderFM />
 
       <View style={styles.content}>
-        {/* Logo o icono */}
         <View style={styles.logoContainer}>
           <Icon name="key" size={40} color="#3A557C" style={styles.logoIcon}/>
         </View>
@@ -75,7 +119,6 @@ export default function ForgotPasswordScreen() {
           Ingresa tu correo electrónico para recibir instrucciones
         </Text>
 
-        {/* Campo de correo */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Correo electrónico</Text>
           <TextInput
@@ -86,31 +129,44 @@ export default function ForgotPasswordScreen() {
             autoCapitalize="none"
             value={email}
             onChangeText={setEmail}
+            editable={!isButtonDisabled} // Deshabilitar campo durante cooldown
           />
         </View>
 
-        {/* Mensajes */}
         {warning !== '' && <Text style={styles.warning}>{warning}</Text>}
-        {success !== '' && <Text style={styles.success}>{success}</Text>}
 
         {loading ? (
           <ActivityIndicator size="large" color="#3A557C" />
         ) : (
           <>
             <TouchableOpacity 
-              style={styles.button} 
+              style={[
+                styles.button, 
+                (isButtonDisabled || loading) && styles.disabledButton
+              ]} 
               onPress={handleResetPassword}
-              activeOpacity={0.7}
+              activeOpacity={isButtonDisabled ? 1 : 0.7} // Eliminar efecto de opacidad cuando está deshabilitado
+              disabled={isButtonDisabled || loading} // Deshabilitar completamente el botón
             >
-              <Text style={styles.buttonText}>Enviar enlace</Text>
+              <Text style={[
+                styles.buttonText,
+                isButtonDisabled && styles.disabledButtonText
+              ]}>
+                {isButtonDisabled 
+                  ? `Espera ${formatTime(cooldown)}` 
+                  : 'Enviar enlace'}
+              </Text>
             </TouchableOpacity>
 
+            {/* Botón de volver SIN deshabilitar durante cooldown */}
             <TouchableOpacity 
               style={styles.backButton}
               onPress={() => router.back()}
               activeOpacity={0.7}
             >
-              <Text style={styles.backButtonText}>Volver al inicio de sesión</Text>
+              <Text style={styles.backButtonText}>
+                Volver al inicio de sesión
+              </Text>
             </TouchableOpacity>
           </>
         )}
@@ -181,16 +237,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
   },
-  success: {
-    color: '#10B981',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
-    backgroundColor: '#D1FAE5',
-    padding: 12,
-    borderRadius: 8,
-  },
   button: {
     backgroundColor: '#3A557C',
     paddingVertical: 16,
@@ -203,11 +249,21 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 5,
   },
+  disabledButton: {
+    backgroundColor: '#cccccc',
+    shadowColor: '#cccccc',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   buttonText: {
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 16,
     letterSpacing: 0.5,
+  },
+  disabledButtonText: {
+    color: '#666666',
   },
   backButton: {
     paddingVertical: 16,
