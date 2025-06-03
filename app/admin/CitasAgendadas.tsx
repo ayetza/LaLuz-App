@@ -1,8 +1,8 @@
-// app/tutor/CitasAgendadas.tsx
+// app/admin/CitasAgendadasAdmin.tsx
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
 import Footer from '../../components/Footer';
 import HeaderAuth from '../../components/HeaderAuth';
 import { auth, db } from '../../lib/firebase';
@@ -34,28 +34,36 @@ type Cita = {
   profesorNombre?: string;
   directoraPresente?: boolean;
   profesorId?: string;
+  tutorNombre?: string;
 };
 
-export default function CitasAgendadas() {
+export default function CitasAgendadasAdmin() {
   const [citas, setCitas] = useState<Cita[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const cargarCitas = async () => {
-    const user = auth.currentUser;
-    if (!user) return;
-  
     setLoading(true);
     try {
+      // Obtener el ID del usuario actual (directora)
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        setError('No se pudo obtener la información del usuario. Por favor, inicia sesión de nuevo.');
+        setLoading(false);
+        return;
+      }
+
+      // Consulta modificada: solo citas pendientes y asignadas a esta directora
       const snapshot = await db
         .collection('citas')
-        .where('tutorId', '==', user.uid)
         .where('estado', '==', 'pendiente')
+        .where('adminId', '==', userId) 
         .get();
   
       const citasData = await Promise.all(snapshot.docs.map(async doc => {
         const data = doc.data();
-  
+
         // Obtener el horario completo
         let horarioData = null;
         if (data.horarioId) {
@@ -73,6 +81,15 @@ export default function CitasAgendadas() {
             profesorNombre = profData?.nombreCompleto || 'Sin nombre';
           }
         }
+        
+        let tutorNombre = 'Desconocido';
+        if (data.tutorId) {
+          const tutorSnap = await db.collection('users').doc(data.tutorId).get();
+          if (tutorSnap.exists) {
+            const tutorData = tutorSnap.data();
+            tutorNombre = tutorData?.nombreCompleto || 'Sin nombre';
+          }
+        }
   
         return {
           id: doc.id,
@@ -87,6 +104,7 @@ export default function CitasAgendadas() {
           estado: data.estado,
           horarioId: data.horarioId,
           profesorNombre,
+          tutorNombre,
           directoraPresente: data.requiereDirectora || false,
           profesorId: data.profesorId
         };
@@ -95,6 +113,7 @@ export default function CitasAgendadas() {
       setCitas(citasData);
     } catch (error) {
       console.error('Error al obtener citas:', error);
+      setError('Error al cargar las citas. Por favor, inténtalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -156,6 +175,7 @@ export default function CitasAgendadas() {
               cargarCitas();
             } catch (error) {
               console.error('Error al cancelar cita:', error);
+              Alert.alert('Error', 'No se pudo cancelar la cita. Por favor, inténtalo de nuevo.');
             }
           },
         },
@@ -194,6 +214,11 @@ export default function CitasAgendadas() {
               <Text style={styles.timeText}>Fin: {item.horaFin}</Text>
             </View>
           </View>
+        </View>
+        
+        <View style={styles.infoRow}>
+          <MaterialIcons name="person" size={16} color={COLORS.primary} />
+          <Text style={styles.infoText}>Tutor: {item.tutorNombre}</Text>
         </View>
         
         <View style={styles.infoRow}>
@@ -239,7 +264,7 @@ export default function CitasAgendadas() {
             <>
               <TouchableOpacity
                 style={styles.modifyButton}
-                onPress={() => router.push(`/tutor/ModificarCita?id=${item.id}`)}
+                onPress={() => router.push(`/admin/ModificarCita?id=${item.id}`)}
               >
                 <MaterialIcons name="edit" size={16} color="#FFF" />
                 <Text style={styles.modifyText}> Modificar</Text>
@@ -267,49 +292,58 @@ export default function CitasAgendadas() {
   return (
     <View style={styles.container}>
       <HeaderAuth />
-      <View style={styles.content}>
+      
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.header}>
-          <Text style={styles.title}>Mis Citas Pendientes</Text>
-          <Text style={styles.subtitle}>Revisa, modifica o cancela tus citas</Text>
+          <Text style={styles.title}>Citas Pendientes</Text>
+          <Text style={styles.subtitle}>Administra tus citas como directora</Text>
         </View>
         
-        {loading ? (
+        {error ? (
+          <View style={styles.errorContainer}>
+            <MaterialIcons name="error-outline" size={32} color={COLORS.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={cargarCitas}
+            >
+              <Text style={styles.retryButtonText}>Reintentar</Text>
+            </TouchableOpacity>
+          </View>
+        ) : loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.loadingText}>Cargando citas...</Text>
+            <Text style={styles.loadingText}>Cargando tus citas...</Text>
           </View>
         ) : citas.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
-            <Text style={styles.emptyText}>No hay citas pendientes</Text>
-            <Text style={styles.emptySubtext}>Todas tus citas agendadas aparecerán aquí</Text>
-            <TouchableOpacity
-              style={styles.scheduleButton}
-              onPress={() => router.push('/maestro/ContactarTutor')}
-            >
-              <MaterialIcons name="add" size={18} color="#FFF" />
-              <Text style={styles.scheduleButtonText}> Contactar Tutor</Text>
-            </TouchableOpacity>
+            <Text style={styles.emptyText}>No tienes citas pendientes</Text>
+            <Text style={styles.emptySubtext}>Las citas asignadas a ti aparecerán aquí</Text>
           </View>
         ) : (
-          <FlatList
-            data={citas}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            contentContainerStyle={{ paddingBottom: 20 }}
-            showsVerticalScrollIndicator={false}
-          />
+          <View style={styles.citasContainer}>
+            {citas.map((item) => (
+              <View key={item.id}>
+                {renderItem({item})}
+              </View>
+            ))}
+          </View>
         )}
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push('/maestro/MaestroHome')}
+          onPress={() => router.push('/admin/AdminHome')}
         >
           <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
-          <Text style={styles.backButtonText}>Volver al Menú Principal</Text>
+          <Text style={styles.backButtonText}>Volver al Panel de Administración</Text>
         </TouchableOpacity>
-      </View>
-      <Footer />
+        
+        <Footer />
+      </ScrollView>
     </View>
   );
 }
@@ -319,12 +353,17 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: COLORS.background 
   },
-  content: { 
-    flex: 1, 
-    padding: 16 
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 30,
   },
   header: {
     marginBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   title: {
     fontSize: 24,
@@ -343,6 +382,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 8,
     marginBottom: 16,
+    marginHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -500,13 +540,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 32,
   },
   loadingText: {
     marginTop: 16,
     color: COLORS.lightText,
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
@@ -523,25 +563,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
-  scheduleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 24,
-    width: '80%',
-  },
-  scheduleButtonText: {
-    color: '#FFF',
-    fontWeight: '500',
+  citasContainer: {
+    paddingBottom: 20,
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 24,
+    marginHorizontal: 16,
     padding: 12,
     borderRadius: 8,
     backgroundColor: '#F5F7FA',
@@ -551,5 +581,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
     marginLeft: 8,
+  },
+  errorContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorText: {
+    fontSize: 16,
+    color: COLORS.danger,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: COLORS.primary,
+    borderRadius: 6,
+  },
+  retryButtonText: {
+    color: '#FFF',
+    fontWeight: '500',
   },
 });

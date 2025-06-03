@@ -18,7 +18,7 @@ import { auth, db } from '../../lib/firebase';
 
 type AdminRoutes =
   | '/admin/ContactarUsuario'
-  | '/admin/Citas'
+  | '/admin/CitasAgendadas' 
   | '/admin/CitasAnteriores'
   | '/admin/Buzon'
   | '/admin/Herramientas'
@@ -57,7 +57,7 @@ const ADMIN_BASE_OPTIONS: OptionItem[] = [
   { 
     label: 'Citas', 
     icon: 'calendar', 
-    route: '/admin/Citas',
+    route: '/admin/CitasAgendadas', 
     description: 'Administrar citas programadas'
   },
   { 
