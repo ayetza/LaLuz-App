@@ -148,13 +148,6 @@ export default function LoginScreen() {
             >
               <Text style={styles.buttonText}>Ingresar</Text>
             </TouchableOpacity>
-
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>¿No tienes usuario?</Text>
-              <TouchableOpacity onPress={() => router.push('/login/register')} activeOpacity={0.7}>
-                <Text style={styles.footerLink}>Crear Usuario</Text>
-              </TouchableOpacity>
-            </View>
           </>
         )}
       </View>
@@ -267,23 +260,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
     letterSpacing: 0.5,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 25,
-    alignItems: 'center',
-    gap: 5,
-  },
-  footerText: {
-    color: '#6B7280',
-    fontSize: 15,
-    fontWeight: '400',
-  },
-  footerLink: {
-    color: '#3A557C',
-    fontSize: 15,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
+  }
 });

@@ -9,6 +9,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import Footer from '../../components/Footer';
@@ -16,16 +17,21 @@ import HeaderAuth from '../../components/HeaderAuth';
 import { auth, db } from '../../lib/firebase';
 
 type AdminRoutes =
+  | '/admin/ContactarUsuario'
+  | '/admin/CitasAgendadas' 
+  | '/admin/CitasAnteriores'
+  | '/admin/Buzon'
   | '/admin/Herramientas'
-  | '/admin/Stats'
-  | '/maestro/MaestroHome';
+  | '/admin/Stats';
 
 const COLORS = {
   primary: '#3A557C',
+  secondary: '#8FC027',
   background: '#FFFFFF',
+  text: '#1A1A1A',
   lightText: '#666666',
   border: '#E0E0E0',
-  text: '#222222', // Added text color
+  error: '#E74C3C'
 };
 
 const carouselImages = [
@@ -38,58 +44,92 @@ type OptionItem = {
   label: string;
   icon: string;
   route: AdminRoutes;
+  description?: string;
 };
 
-const ADMIN_OPTIONS: OptionItem[] = [
-  { label: 'Herramientas de Administrador', icon: 'calendar', route: '/admin/Herramientas' },
-  { label: 'Estadisticas', icon: 'bar-chart', route: '/admin/Stats' },
-  { label: 'Acceso Como Maestro', icon: 'user', route: '/maestro/MaestroHome' },
+const ADMIN_BASE_OPTIONS: OptionItem[] = [
+  { 
+    label: 'Contactar Usuario', 
+    icon: 'message-square', 
+    route: '/admin/ContactarUsuario',
+    description: 'Comunicación con maestros y tutores'
+  },
+  { 
+    label: 'Citas', 
+    icon: 'calendar', 
+    route: '/admin/CitasAgendadas', 
+    description: 'Administrar citas programadas'
+  },
+  { 
+    label: 'Citas Anteriores', 
+    icon: 'corner-up-left', 
+    route: '/admin/CitasAnteriores',
+    description: 'Historial de citas pasadas'
+  },
+  { 
+    label: 'Buzón', 
+    icon: 'mail', 
+    route: '/admin/Buzon',
+    description: 'Mensajes recibidos y enviados'
+  },
 ];
+
+const ADMIN_EXTRA_OPTIONS: OptionItem[] = [
+  { 
+    label: 'Herramientas de Admin', 
+    icon: 'tool', 
+    route: '/admin/Herramientas',
+    description: 'Funciones avanzadas de administración'
+  },
+  { 
+    label: 'Estadísticas', 
+    icon: 'bar-chart-2', 
+    route: '/admin/Stats',
+    description: 'Reportes y métricas del sistema'
+  },
+];
+
+const ALL_ADMIN_OPTIONS = [...ADMIN_BASE_OPTIONS, ...ADMIN_EXTRA_OPTIONS];
 
 const OptionCard = ({ item, onPress }: { item: OptionItem; onPress: () => void }) => (
   <TouchableOpacity
     style={[styles.optionCard, styles.regularCard]}
     onPress={onPress}
     activeOpacity={0.8}
+    accessibilityLabel={`Botón ${item.label}`}
+    accessibilityHint={`Navegar a ${item.label}`}
   >
-    <Icon name={item.icon} size={32} color={COLORS.primary} />
+    <Icon name={item.icon} size={28} color={COLORS.primary} />
     <Text style={styles.cardLabel}>{item.label}</Text>
+    {item.description && (
+      <Text style={styles.cardDescription}>{item.description}</Text>
+    )}
   </TouchableOpacity>
 );
 
-export default function AdminHome() {
+export default function AdminDashboard() {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [nombreUsuario, setNombreUsuario] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   const windowWidth = Dimensions.get('window').width;
-
-  useEffect(() => {
-    const obtenerNombre = async () => {
-      const user = auth.currentUser;
-      if (user) {
-        const docRef = db.doc(`users/${user.uid}`);
-        const docSnap = await docRef.get();
-
-        if (docSnap.exists) {
-          const data = docSnap.data();
-          const nombreCompleto = data?.nombreCompleto || '';
-          const partes = nombreCompleto.trim().split(' ');
-          const nombreYApellido = partes.slice(0, 2).join(' ');
-          setNombreUsuario(nombreYApellido);
-        }
-      }
-    };
-
-    obtenerNombre();
-  }, []);
+  const currentDate = new Date();
+  
+  const monthNames = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
 
   useEffect(() => {
     const interval = setInterval(() => {
       const nextIndex = (activeIndex + 1) % carouselImages.length;
       scrollRef.current?.scrollTo({ x: nextIndex * windowWidth, animated: true });
       setActiveIndex(nextIndex);
-    }, 3000);
+    }, 5000);
+    
     return () => clearInterval(interval);
   }, [activeIndex, windowWidth]);
 
@@ -102,23 +142,72 @@ export default function AdminHome() {
     router.push(route);
   };
 
-  const currentDate = new Date();
-  const monthNames = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-  ];
+  useEffect(() => {
+    const obtenerNombre = async () => {
+      try {
+        setLoading(true);
+        const user = auth.currentUser;
+        
+        if (!user) {
+          setError('Usuario no autenticado');
+          setLoading(false);
+          return;
+        }
+        
+        const docRef = db.doc(`users/${user.uid}`);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          const nombreCompleto = data?.nombreCompleto || '';
+          
+          const partes = nombreCompleto.trim().split(/\s+/);
+          const nombreYApellido = partes.slice(0, 2).join(' ');
+          setNombreUsuario(nombreYApellido);
+        } else {
+          setError('Perfil de usuario no encontrado');
+        }
+      } catch (err) {
+        setError('Error al cargar datos del usuario');
+        console.error('Error fetching user data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    obtenerNombre();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Cargando panel de administración...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} accessibilityLabel="Panel de Administración">
       <HeaderAuth />
-
-      <View style={styles.content}>
+      
+      {/* Contenedor principal con ScrollView único */}
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+      >
+        {/* Sección de bienvenida */}
         <View style={styles.welcomeSection}>
           <View style={styles.welcomeContainer}>
             <Text style={styles.welcomeText}>
-              Hola de nuevo {nombreUsuario ?? ''}
+              Bienvenido {nombreUsuario ?? 'Administrador'}
             </Text>
-            <Text style={styles.subtitle}>Panel de administración</Text>
+            <Text style={styles.subtitle}>Panel de Administración Escolar</Text>
+            
+            {error && (
+              <Text style={styles.errorText}>{error}</Text>
+            )}
           </View>
         </View>
 
@@ -132,17 +221,29 @@ export default function AdminHome() {
             scrollEventThrottle={16}
             showsHorizontalScrollIndicator={false}
             style={styles.carousel}
+            accessibilityLabel="Carrusel de imágenes"
           >
             {carouselImages.map((img, index) => (
-              <View key={index} style={[styles.imageWrapper, { width: windowWidth - 32 }]}>
-                <Image source={img} style={styles.kidsImage} resizeMode="cover" />
+              <View 
+                key={index} 
+                style={[styles.imageWrapper, { width: windowWidth - 32 }]}
+                accessibilityLabel={`Imagen ${index + 1} de ${carouselImages.length}`}
+              >
+                <Image 
+                  source={img} 
+                  style={styles.kidsImage} 
+                  resizeMode="cover" 
+                  accessibilityIgnoresInvertColors
+                />
               </View>
             ))}
           </ScrollView>
 
-          <View style={styles.dateBadge}>
+          <View style={styles.dateBadge} accessibilityLabel="Fecha actual">
             <Text style={styles.dateDay}>{currentDate.getDate()}</Text>
-            <Text style={styles.dateMonth}>{monthNames[currentDate.getMonth()].substring(0, 3)}</Text>
+            <Text style={styles.dateMonth}>
+              {monthNames[currentDate.getMonth()].substring(0, 3)}
+            </Text>
           </View>
 
           <View style={styles.pagination}>
@@ -153,14 +254,16 @@ export default function AdminHome() {
                   styles.dot,
                   activeIndex === index ? styles.dotActive : null,
                 ]}
+                accessibilityLabel={`Indicador ${index + 1} de ${carouselImages.length}`}
               />
             ))}
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.optionsContainer} showsVerticalScrollIndicator={false}>
+        <View style={styles.optionsContainer}>
+          <Text style={styles.sectionTitle}>Herramientas Disponibles</Text>
           <View style={styles.grid}>
-            {ADMIN_OPTIONS.map((item, index) => (
+            {ALL_ADMIN_OPTIONS.map((item, index) => (
               <OptionCard
                 key={index}
                 item={item}
@@ -171,30 +274,58 @@ export default function AdminHome() {
 
           <View style={styles.infoCard}>
             <Text style={styles.infoText}>
-              “Un buen administrador inspira confianza y guía con el ejemplo.” – Anónimo
+              “La excelencia administrativa es el arte de hacer posible lo necesario.” 
             </Text>
           </View>
-
-          <Footer />
-        </ScrollView>
-      </View>
+        </View>
+        
+        {/* Footer dentro del ScrollView */}
+        <Footer />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  content: { flex: 1, paddingHorizontal: 16 },
-  welcomeSection: { marginTop: 20, marginBottom: 16 },
+  container: { 
+    flex: 1, 
+    backgroundColor: COLORS.background 
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 30, // Espacio para que no quede pegado al final
+  },
+  welcomeSection: { 
+    marginTop: 20, 
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
   welcomeContainer: { marginLeft: 8 },
   welcomeText: {
     fontSize: 24,
-    fontWeight: '500',
-    color: COLORS.text,
+    fontWeight: '600',
+    color: COLORS.primary,
     marginBottom: 4,
   },
-  subtitle: { fontSize: 16, color: COLORS.lightText, fontWeight: '300' },
-  carouselContainer: { height: 190, marginBottom: 24, position: 'relative' },
+  subtitle: { 
+    fontSize: 16, 
+    color: COLORS.lightText, 
+    fontWeight: '400'
+  },
+  errorText: {
+    color: COLORS.error,
+    marginTop: 8,
+    fontSize: 14
+  },
+  carouselContainer: { 
+    height: 190, 
+    marginBottom: 24, 
+    position: 'relative',
+    paddingHorizontal: 16,
+  },
   carousel: { borderRadius: 12, overflow: 'hidden' },
   imageWrapper: {
     height: 180,
@@ -235,18 +366,29 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   dotActive: { backgroundColor: COLORS.primary },
-  optionsContainer: { paddingBottom: 40 },
+  optionsContainer: { 
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: 16,
+    marginTop: 8,
+    width: '100%'
+  },
   regularCard: {
-    width: '100%',
+    width: '48%',
     backgroundColor: COLORS.background,
     borderRadius: 10,
-    padding: 20,
+    padding: 16,
     marginBottom: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -260,11 +402,17 @@ const styles = StyleSheet.create({
   },
   optionCard: {},
   cardLabel: {
-    marginTop: 10,
-    fontSize: 16,
+    marginTop: 8,
+    fontSize: 15,
     color: COLORS.primary,
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600'
+  },
+  cardDescription: {
+    fontSize: 12,
+    color: COLORS.lightText,
+    textAlign: 'center',
+    marginTop: 4
   },
   infoCard: {
     backgroundColor: '#F9FAFB',
@@ -272,7 +420,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginHorizontal: 6,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -281,10 +428,21 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   infoText: {
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.text,
     fontStyle: 'italic',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 20
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background
+  },
+  loadingText: {
+    marginTop: 16,
+    color: COLORS.primary,
+    fontSize: 16
+  }
 });
