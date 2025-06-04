@@ -303,10 +303,10 @@ export default function CitasAgendadas() {
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push('/maestro/MaestroHome')}
+          onPress={() => router.back()}
         >
           <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
-          <Text style={styles.backButtonText}>Volver al Menú Principal</Text>
+          <Text style={styles.backButtonText}>Volver</Text>
         </TouchableOpacity>
       </View>
       <Footer />
