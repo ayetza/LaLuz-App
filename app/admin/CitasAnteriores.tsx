@@ -1,4 +1,4 @@
-// app/maestro/CitasAnteriores.tsx
+// app/admin/CitasAnterioresDirectora.tsx
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -15,7 +15,7 @@ const COLORS = {
   danger: '#EF4444',
 };
 
-export default function CitasAnterioresMaestro() {
+export default function CitasAnterioresDirectora() {
   const [citas, setCitas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [retroVisibleId, setRetroVisibleId] = useState<string | null>(null);
@@ -24,10 +24,14 @@ export default function CitasAnterioresMaestro() {
   const cargarCitas = async () => {
     const user = auth.currentUser;
     if (!user) return;
+    
     try {
+      // Consulta modificada para directora:
+      // 1. Solo citas que requirieron directora
+      // 2. Solo citas finalizadas (realizadas/canceladas)
       const snapshot = await db
         .collection('citas')
-        .where('profesorId', '==', user.uid)
+        .where('requiereDirectora', '==', true)
         .where('estado', 'in', ['realizada', 'cancelada'])
         .get();
 
@@ -60,10 +64,15 @@ export default function CitasAnterioresMaestro() {
       <Text style={styles.info}><MaterialIcons name="calendar-today" size={16} color={COLORS.primary} /> {formatDate(item.fecha)}</Text>
       <Text style={styles.info}><MaterialIcons name="access-time" size={16} color={COLORS.primary} /> {item.hora}</Text>
       <Text style={styles.info}><MaterialIcons name="info" size={16} color={COLORS.primary} /> Prioridad: {item.importancia}</Text>
-      <Text style={styles.info}><MaterialIcons name="verified-user" size={16} color={COLORS.primary} /> Directora requerida: {item.requiereDirectora ? 'Sí' : 'No'}</Text>
-      <Text style={[styles.estado, item.estado === 'realizada' ? styles.estadoRealizada : styles.estadoCancelada]}>Estado: {item.estado}</Text>
+      <Text style={styles.info}><MaterialIcons name="person" size={16} color={COLORS.primary} /> Profesor: {item.nombreProfesor}</Text>
+      <Text style={[styles.estado, item.estado === 'realizada' ? styles.estadoRealizada : styles.estadoCancelada]}>
+        Estado: {item.estado}
+      </Text>
 
-      <TouchableOpacity onPress={() => setRetroVisibleId(prev => prev === item.id ? null : item.id)} style={styles.retroButton}>
+      <TouchableOpacity 
+        onPress={() => setRetroVisibleId(prev => prev === item.id ? null : item.id)} 
+        style={styles.retroButton}
+      >
         <MaterialIcons name="comment" size={16} color={COLORS.primary} />
         <Text style={styles.retroText}>Ver retroalimentación</Text>
       </TouchableOpacity>
@@ -80,8 +89,8 @@ export default function CitasAnterioresMaestro() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Citas Anteriores</Text>
-        <Text style={styles.subtitle}>Historial de citas del maestro</Text>
+        <Text style={styles.title}>Citas con Directora</Text>
+        <Text style={styles.subtitle}>Historial de citas que requirieron directora</Text>
       </View>
 
       {loading ? (
@@ -89,7 +98,7 @@ export default function CitasAnterioresMaestro() {
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
       ) : citas.length === 0 ? (
-        <Text style={styles.emptyText}>No hay citas anteriores registradas.</Text>
+        <Text style={styles.emptyText}>No hay citas anteriores que requirieran directora.</Text>
       ) : (
         <FlatList
           data={citas}
@@ -102,7 +111,7 @@ export default function CitasAnterioresMaestro() {
 
       <TouchableOpacity
         style={styles.backButton}
-        onPress={() => router.push('/maestro/MaestroHome')}
+        onPress={() => router.push('/admin/AdminHome')} // Ruta modificada
       >
         <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
         <Text style={styles.backButtonText}>Volver al Menú Principal</Text>

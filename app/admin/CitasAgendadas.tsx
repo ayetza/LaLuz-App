@@ -262,13 +262,6 @@ export default function CitasAgendadasAdmin() {
         <View style={styles.buttonContainer}>
           {puedeModificarOCancelar ? (
             <>
-              <TouchableOpacity
-                style={styles.modifyButton}
-                onPress={() => router.push(`/admin/ModificarCita?id=${item.id}`)}
-              >
-                <MaterialIcons name="edit" size={16} color="#FFF" />
-                <Text style={styles.modifyText}> Modificar</Text>
-              </TouchableOpacity>
               
               <TouchableOpacity
                 style={styles.cancelButton}
