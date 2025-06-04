@@ -1,561 +1,510 @@
+// app/maestro/Horarios.tsx
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import HeaderAuth from '../../components/HeaderAuth';
+import { useRouter } from 'expo-router';
+import { Timestamp, addDoc, collection, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react'; // Added useCallback
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../../lib/firebase';
 
-type TimeSlot = {
-  start: string;
-  end: string;
-  isCustom?: boolean;
-  isNew?: boolean;
+const COLORS = {
+  primary: '#3A557C',
+  light: '#E5E7EB',
+  background: '#FFFFFF',
+  text: '#1A1A1A',
+  border: '#D1D5DB',
+  error: '#DC2626',
+  warning: '#F59E0B',
+  success: '#10B981'
 };
 
-type DaySchedule = {
-  name: string;
-  active: boolean;
-  slots: TimeSlot[];
-  defaultMorning: boolean;
-  defaultAfternoon: boolean;
+type Horario = {
+  id: string;
+  dia: string;
+  horaInicio: string;
+  horaFin: string;
+  fecha: Timestamp;
+  disponible: boolean; 
 };
 
-const DEFAULT_MORNING = { start: '07:00', end: '07:30', isCustom: false };
-const DEFAULT_AFTERNOON = { start: '14:00', end: '14:30', isCustom: false };
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+const HORAS_DISPONIBLES = [
+  '07:00 - 08:00',
+  '08:00 - 09:00',
+  '09:00 - 10:00',
+  '10:00 - 11:00',
+  '11:00 - 12:00',
+  '12:00 - 13:00',
+  '13:00 - 14:00',
+  '14:00 - 15:00',
+  '15:00 - 16:00',
+  '16:00 - 17:00'
+];
 
 export default function Horarios() {
-  const navigation = useNavigation();
-  const [days, setDays] = useState<DaySchedule[]>([
-    { name: 'Lunes', active: false, slots: [], defaultMorning: false, defaultAfternoon: false },
-    { name: 'Martes', active: false, slots: [], defaultMorning: false, defaultAfternoon: false },
-    { name: 'Miércoles', active: false, slots: [], defaultMorning: false, defaultAfternoon: false },
-    { name: 'Jueves', active: false, slots: [], defaultMorning: false, defaultAfternoon: false },
-    { name: 'Viernes', active: false, slots: [], defaultMorning: false, defaultAfternoon: false },
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const [diasSeleccionados, setDiasSeleccionados] = useState<string[]>([]);
+  const [horasSeleccionadas, setHorasSeleccionadas] = useState<string[]>([]);
+  const [horariosRegistrados, setHorariosRegistrados] = useState<Horario[]>([]);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const validateTimeFormat = (time: string) => {
-    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    return timeRegex.test(time);
-  };
+  // Function to calculate the date for the next occurrence of a given weekday
+  const generarFecha = useCallback((diaSemana: string): Date => {
+    const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0); // Normalize to start of day
+    const diaActual = hoy.getDay();
+    const diaObjetivo = dias.indexOf(diaSemana);
 
-  const validateTimeRange = (start: string, end: string) => {
-    const startTime = new Date(`2000-01-01T${start}:00`);
-    const endTime = new Date(`2000-01-01T${end}:00`);
-    return endTime > startTime;
-  };
-
-  useEffect(() => {
-    obtenerHorarios();
-  }, []);
-
-  const obtenerHorarios = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      console.warn('No hay usuario autenticado.');
-      return;
+    let diferencia = diaObjetivo - diaActual;
+    // If the target day has already passed this week, aim for next week
+    if (diferencia < 0) {
+      diferencia += 7;
+    } else if (diferencia === 0) {
+      // If it's today, check if current time allows for future booking.
+      // For simplicity, let's assume if it's "today", it means "the next occurrence of today".
+      // If you need exact same-day future bookings, you'd need to compare hours.
+      // For now, if it's the same day, we treat it as next week for consistency in setting future availability.
+      diferencia += 7;
     }
 
-    setIsLoading(true);
-    try {
-      const horariosRef = db.collection(`horarios_disponibles`);
-      const querySnapshot = await horariosRef
-        .where('profesorId', '==', user.uid)
-        .get();
+    const fecha = new Date(hoy);
+    fecha.setDate(hoy.getDate() + diferencia);
+    return fecha;
+  }, []); // Empty dependency array means this function is memoized once
 
-      const updatedDays = [...days];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const dayIndex = updatedDays.findIndex(d => 
-          d.name.toLowerCase() === data.dia.toLowerCase()
-        );
-        
-        if (dayIndex !== -1) {
-          updatedDays[dayIndex].active = true;
-          
-          if (data.horainicio === DEFAULT_MORNING.start && data.horafin === DEFAULT_MORNING.end) {
-            updatedDays[dayIndex].defaultMorning = true;
-          } 
-          else if (data.horainicio === DEFAULT_AFTERNOON.start && data.horafin === DEFAULT_AFTERNOON.end) {
-            updatedDays[dayIndex].defaultAfternoon = true;
-          } 
-          else {
-            updatedDays[dayIndex].slots.push({
-              start: data.horainicio,
-              end: data.horafin,
-              isCustom: true
-            });
+  const cargarHorarios = useCallback(async () => {
+    try {
+      setCargando(true);
+      setError(null);
+      const user = auth.currentUser;
+      if (!user) throw new Error('Debes iniciar sesión');
+
+      const q = query(
+        collection(db, 'horarios_disponibles'),
+        where('profesorId', '==', user.uid)
+      );
+
+      const snapshot = await getDocs(q);
+      const horariosData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Horario[];
+
+      setHorariosRegistrados(horariosData);
+
+      // Initialize selected days and hours based on current registered available slots
+      const initialDias: string[] = [];
+      const initialHoras: string[] = [];
+      horariosData.forEach(horario => {
+        if (horario.disponible) { // Only pre-select truly available slots
+          if (!initialDias.includes(horario.dia)) {
+            initialDias.push(horario.dia);
+          }
+          const horaString = `${horario.horaInicio} - ${horario.horaFin}`;
+          if (!initialHoras.includes(horaString)) {
+            initialHoras.push(horaString);
           }
         }
       });
+      setDiasSeleccionados(initialDias);
+      setHorasSeleccionadas(initialHoras);
 
-      setDays(updatedDays);
-    } catch (error) {
-      console.error('Error al leer los horarios:', error);
-      Alert.alert('Error', 'No se pudieron cargar los horarios');
+    } catch (error: any) {
+      console.error("Error al cargar horarios:", error);
+      setError(error.message || 'Error al cargar horarios');
     } finally {
-      setIsLoading(false);
+      setCargando(false);
     }
+  }, []); // Empty dependency array as it doesn't depend on external state
+
+  useEffect(() => {
+    cargarHorarios();
+  }, [cargarHorarios]); // Dependency on cargarHorarios, which is memoized
+
+  const toggleDia = (dia: string) => {
+    setDiasSeleccionados(prev =>
+      prev.includes(dia)
+        ? prev.filter(d => d !== dia)
+        : [...prev, dia]
+    );
   };
 
-  const toggleDay = (index: number) => {
-    const updatedDays = [...days];
-    updatedDays[index].active = !updatedDays[index].active;
-    
-    if (!updatedDays[index].active) {
-      updatedDays[index].defaultMorning = false;
-      updatedDays[index].defaultAfternoon = false;
-      updatedDays[index].slots = [];
-    }
-    
-    setDays(updatedDays);
-  };
-
-  const toggleDefaultSlot = (dayIndex: number, slotType: 'morning' | 'afternoon') => {
-    const updatedDays = [...days];
-    
-    if (slotType === 'morning') {
-      updatedDays[dayIndex].defaultMorning = !updatedDays[dayIndex].defaultMorning;
-    } else {
-      updatedDays[dayIndex].defaultAfternoon = !updatedDays[dayIndex].defaultAfternoon;
-    }
-    
-    if (!updatedDays[dayIndex].active) {
-      updatedDays[dayIndex].active = true;
-    }
-    
-    setDays(updatedDays);
-  };
-
-  const addCustomTimeSlot = (dayIndex: number) => {
-    const updatedDays = [...days];
-    updatedDays[dayIndex].slots.push({ 
-      start: '08:00', 
-      end: '09:00',
-      isCustom: true,
-      isNew: true
-    });
-    setDays(updatedDays);
-  };
-
-  const removeCustomTimeSlot = (dayIndex: number, slotIndex: number) => {
-    const updatedDays = [...days];
-    updatedDays[dayIndex].slots.splice(slotIndex, 1);
-    setDays(updatedDays);
-  };
-
-  const confirmCustomTimeSlot = (dayIndex: number, slotIndex: number) => {
-    const updatedDays = [...days];
-    updatedDays[dayIndex].slots[slotIndex].isNew = false;
-    setDays(updatedDays);
-  };
-
-  const updateCustomTimeSlot = (dayIndex: number, slotIndex: number, field: 'start' | 'end', value: string) => {
-    const cleanedValue = value.replace(/[^0-9:]/g, '');
-    const formattedValue = cleanedValue.length > 5 ? cleanedValue.substring(0, 5) : cleanedValue;
-    
-    const updatedDays = [...days];
-    updatedDays[dayIndex].slots[slotIndex][field] = formattedValue;
-    setDays(updatedDays);
+  const toggleHora = (hora: string) => {
+    setHorasSeleccionadas(prev =>
+      prev.includes(hora)
+        ? prev.filter(h => h !== hora)
+        : [...prev, hora]
+    );
   };
 
   const guardarHorarios = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert('Error', 'No hay usuario autenticado.');
-      return;
-    }
+    try {
+      setCargando(true);
+      const user = auth.currentUser;
+      if (!user) throw new Error('Debes iniciar sesión');
+      if (diasSeleccionados.length === 0 || horasSeleccionadas.length === 0) {
+        throw new Error('Selecciona al menos un día y una hora');
+      }
 
-    // Validación de horarios
-    for (const day of days) {
-      if (day.active) {
-        for (const slot of day.slots) {
-          if (!slot.start || !slot.end) {
-            Alert.alert('Error', `Por favor complete todos los campos de horario para ${day.name}`);
-            return;
-          }
-          
-          if (!validateTimeFormat(slot.start)) {
-            Alert.alert('Error', `Formato de hora de inicio inválido en ${day.name}. Use HH:MM (24 horas)`);
-            return;
-          }
+      const currentHorariosMap = new Map<string, Horario>();
+      horariosRegistrados.forEach(h => {
+        currentHorariosMap.set(`${h.dia}-${h.horaInicio}-${h.horaFin}`, h);
+      });
 
-          if (!validateTimeFormat(slot.end)) {
-            Alert.alert('Error', `Formato de hora de fin inválido en ${day.name}. Use HH:MM (24 horas)`);
-            return;
-          }
+      const newHorariosToSet: { dia: string; horaInicio: string; horaFin: string; fecha: Timestamp; }[] = [];
+      diasSeleccionados.forEach(dia => {
+        horasSeleccionadas.forEach(hora => {
+          const [horaInicio, horaFin] = hora.split(' - ');
+          const fecha = generarFecha(dia);
+          newHorariosToSet.push({ dia, horaInicio, horaFin, fecha: Timestamp.fromDate(fecha) });
+        });
+      });
 
-          if (!validateTimeRange(slot.start, slot.end)) {
-            Alert.alert('Error', `La hora de fin debe ser posterior a la hora de inicio en ${day.name}`);
-            return;
-          }
+      // 1. Delete schedules that are no longer selected AND are available
+      for (const [key, horario] of currentHorariosMap.entries()) {
+        const isStillSelected = newHorariosToSet.some(
+          nh => nh.dia === horario.dia && nh.horaInicio === horario.horaInicio && nh.horaFin === horario.horaFin
+        );
+
+        if (!isStillSelected && horario.disponible) {
+          await deleteDoc(doc(db, 'horarios_disponibles', horario.id));
         }
       }
-    }
 
-    setIsLoading(true);
-    try {
-      const batch = db.batch();
-      
-      // Eliminar horarios existentes
-      const existingRef = db.collection('horarios_disponibles')
-        .where('profesorId', '==', user.uid);
-      const existingSnapshot = await existingRef.get();
-      existingSnapshot.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-
-      // Guardar nuevos horarios
-      days.forEach(day => {
-        if (day.active) {
-          if (day.defaultMorning) {
-            const morningRef = db.collection('horarios_disponibles').doc();
-            batch.set(morningRef, {
-              dia: day.name.toLowerCase(),
-              disponible: true,
-              horainicio: DEFAULT_MORNING.start,
-              horafin: DEFAULT_MORNING.end,
-              profesorId: user.uid,
-              isDefault: true
-            });
-          }
-          
-          if (day.defaultAfternoon) {
-            const afternoonRef = db.collection('horarios_disponibles').doc();
-            batch.set(afternoonRef, {
-              dia: day.name.toLowerCase(),
-              disponible: true,
-              horainicio: DEFAULT_AFTERNOON.start,
-              horafin: DEFAULT_AFTERNOON.end,
-              profesorId: user.uid,
-              isDefault: true
-            });
-          }
-          
-          day.slots.forEach(slot => {
-            if (slot.start && slot.end) {
-              const ref = db.collection('horarios_disponibles').doc();
-              batch.set(ref, {
-                dia: day.name.toLowerCase(),
-                disponible: true,
-                horainicio: slot.start,
-                horafin: slot.end,
-                profesorId: user.uid,
-                isCustom: true
-              });
-            }
+      // 2. Add new schedules that were selected but don't exist yet
+      for (const newHorario of newHorariosToSet) {
+        const key = `${newHorario.dia}-${newHorario.horaInicio}-${newHorario.horaFin}`;
+        if (!currentHorariosMap.has(key)) {
+          await addDoc(collection(db, 'horarios_disponibles'), {
+            profesorId: user.uid,
+            dia: newHorario.dia,
+            horaInicio: newHorario.horaInicio,
+            horaFin: newHorario.horaFin,
+            disponible: true, // New schedules are always available initially
+            fecha: newHorario.fecha,
+            nombreProfesor: user.displayName || 'Profesor'
           });
         }
-      });
+      }
 
-      await batch.commit();
-      Alert.alert('Éxito', 'Horarios guardados correctamente');
-    } catch (error) {
-      console.error('Error al guardar los horarios:', error);
-      Alert.alert('Error', 'No se pudieron guardar los horarios');
+      Alert.alert('Éxito', 'Horarios actualizados correctamente');
+      await cargarHorarios(); // Reload schedules to reflect changes
+    } catch (error: any) {
+      console.error("Error al guardar horarios:", error);
+      Alert.alert('Error', error.message);
     } finally {
-      setIsLoading(false);
+      setCargando(false);
     }
-  };
-
-  const handleGoBack = () => {
-    navigation.goBack();
   };
 
   return (
-    <View style={styles.container}>
-      <HeaderAuth />
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Horarios Disponibles</Text>
-          <Text style={styles.subtitle}>Configura tus horarios de disponibilidad</Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      {/* Botón de volver */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => router.back()}
+      >
+        <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+        <Text style={styles.backButtonText}>Regresar</Text>
+      </TouchableOpacity>
+
+      {/* Encabezado */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Mis Horarios Disponibles</Text>
+        <Text style={styles.subtitle}>
+          Selecciona los días y horarios en que estás disponible para atender citas. Los horarios ya agendados no se pueden eliminar.
+        </Text>
+      </View>
+
+      {/* Mensaje de error */}
+      {error && (
+        <View style={styles.errorBox}>
+          <Ionicons name="warning" size={20} color={COLORS.error} />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity
+            style={styles.reloadButton}
+            onPress={cargarHorarios}
+          >
+            <Ionicons name="refresh" size={16} color={COLORS.primary} />
+            <Text style={styles.reloadText}>Reintentar</Text>
+          </TouchableOpacity>
         </View>
+      )}
 
-        <ScrollView>
-          {days.map((day, dayIndex) => (
-            <View key={dayIndex} style={styles.dayContainer}>
-              <View style={styles.dayHeader}>
-                <Text style={styles.dayName}>{day.name}</Text>
-                <Switch
-                  trackColor={{ false: '#E5E7EB', true: '#3A557C' }}
-                  thumbColor="#FFFFFF"
-                  ios_backgroundColor="#E5E7EB"
-                  onValueChange={() => toggleDay(dayIndex)}
-                  value={day.active}
-                />
-              </View>
-
-              {day.active && (
-                <View>
-                  <Text style={styles.sectionTitle}>Horarios sugeridos:</Text>
-                  <View style={styles.defaultSlotsContainer}>
-                    <TouchableOpacity
-                      style={[styles.defaultSlot, day.defaultMorning && styles.activeDefaultSlot]}
-                      onPress={() => toggleDefaultSlot(dayIndex, 'morning')}
-                    >
-                      <Text style={[styles.defaultSlotText, day.defaultMorning && styles.activeDefaultSlotText]}>
-                        7:00 - 7:30 AM
-                      </Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      style={[styles.defaultSlot, day.defaultAfternoon && styles.activeDefaultSlot]}
-                      onPress={() => toggleDefaultSlot(dayIndex, 'afternoon')}
-                    >
-                      <Text style={[styles.defaultSlotText, day.defaultAfternoon && styles.activeDefaultSlotText]}>
-                        2:00 - 2:30 PM
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.sectionTitle}>Horarios personalizados:</Text>
-                  
-                  {day.slots.map((slot, slotIndex) => (
-                    <View key={slotIndex} style={styles.customSlotContainer}>
-                      <TextInput
-                        style={[
-                          styles.timeInput,
-                          !validateTimeFormat(slot.start) && styles.invalidInput
-                        ]}
-                        value={slot.start}
-                        onChangeText={(text) => updateCustomTimeSlot(dayIndex, slotIndex, 'start', text)}
-                        placeholder="HH:MM"
-                        keyboardType="numbers-and-punctuation"
-                        maxLength={5}
-                      />
-                      <Text style={styles.timeSeparator}>a</Text>
-                      <TextInput
-                        style={[
-                          styles.timeInput,
-                          !validateTimeFormat(slot.end) && styles.invalidInput
-                        ]}
-                        value={slot.end}
-                        onChangeText={(text) => updateCustomTimeSlot(dayIndex, slotIndex, 'end', text)}
-                        placeholder="HH:MM"
-                        keyboardType="numbers-and-punctuation"
-                        maxLength={5}
-                      />
-                      
-                      <View style={styles.slotActions}>
-                        {slot.isNew && (
-                          <TouchableOpacity
-                            style={[styles.slotButton, styles.confirmButton]}
-                            onPress={() => confirmCustomTimeSlot(dayIndex, slotIndex)}
-                            disabled={!validateTimeFormat(slot.start) || !validateTimeFormat(slot.end)}
-                          >
-                            <Text style={styles.buttonText}>Aceptar</Text>
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          style={[styles.slotButton, styles.deleteButton]}
-                          onPress={() => removeCustomTimeSlot(dayIndex, slotIndex)}
-                        >
-                          <Text style={styles.buttonText}>Eliminar</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
-                  
-                  <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => addCustomTimeSlot(dayIndex)}
-                  >
-                    <Ionicons name="add" size={18} color="#3A557C" />
-                    <Text style={styles.addButtonText}>Agregar horario personalizado</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          ))}
-
-          <View style={styles.actionButtons}>
+      {/* Días de la semana */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Días disponibles</Text>
+        <View style={styles.diasContainer}>
+          {DIAS_SEMANA.map(dia => (
             <TouchableOpacity
-              style={[styles.actionButton, styles.secondaryButton]}
-              onPress={handleGoBack}
+              key={dia}
+              style={[
+                styles.diaButton,
+                diasSeleccionados.includes(dia) && styles.diaButtonSelected
+              ]}
+              onPress={() => toggleDia(dia)}
             >
-              <Text style={styles.secondaryButtonText}>Volver</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.saveButton, styles.primaryButton]}
-              onPress={guardarHorarios}
-              disabled={isLoading}
-            >
-              <Text style={styles.primaryButtonText}>
-                {isLoading ? 'Guardando...' : 'Guardar Horarios'}
+              <Text style={[
+                styles.diaButtonText,
+                diasSeleccionados.includes(dia) && styles.diaButtonTextSelected
+              ]}>
+                {dia}
               </Text>
             </TouchableOpacity>
-          </View>
-        </ScrollView>
+          ))}
+        </View>
       </View>
-    </View>
+
+      {/* Horas disponibles */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Horas disponibles</Text>
+        <View style={styles.horasContainer}>
+          {HORAS_DISPONIBLES.map(hora => (
+            <TouchableOpacity
+              key={hora}
+              style={[
+                styles.horaButton,
+                horasSeleccionadas.includes(hora) && styles.horaButtonSelected
+              ]}
+              onPress={() => toggleHora(hora)}
+            >
+              <Text style={[
+                styles.horaButtonText,
+                horasSeleccionadas.includes(hora) && styles.horaButtonTextSelected
+              ]}>
+                {hora}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Horarios registrados */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Mis horarios registrados (y su estado)</Text>
+        {cargando ? (
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : horariosRegistrados.length > 0 ? (
+          <View style={styles.horariosList}>
+            {horariosRegistrados.map(horario => (
+              <View key={horario.id} style={styles.horarioItem}>
+                <Ionicons
+                  name={horario.disponible ? "checkmark-circle" : "close-circle"}
+                  size={18}
+                  color={horario.disponible ? COLORS.success : COLORS.error}
+                />
+                <Text style={styles.horarioText}>
+                  {horario.dia} {horario.horaInicio} - {horario.horaFin}
+                  <Text style={{ color: horario.disponible ? COLORS.success : COLORS.error, fontWeight: 'bold' }}>
+                    ({horario.disponible ? 'Disponible' : 'Agendado'})
+                  </Text>
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.emptyText}>No has configurado ningún horario disponible.</Text>
+        )}
+      </View>
+
+      {/* Botón de guardar */}
+      <TouchableOpacity
+        style={[
+          styles.button,
+          (diasSeleccionados.length === 0 || horasSeleccionadas.length === 0) && styles.buttonDisabled
+        ]}
+        onPress={guardarHorarios}
+        disabled={diasSeleccionados.length === 0 || horasSeleccionadas.length === 0 || cargando}
+      >
+        {cargando ? (
+          <ActivityIndicator color="white" />
+        ) : (
+          <>
+            <Ionicons name="save" size={20} color="white" />
+            <Text style={styles.buttonText}>Guardar Horarios</Text>
+          </>
+        )}
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#F9FAFB' 
+  container: {
+    flexGrow: 1,
+    padding: 20,
+    backgroundColor: COLORS.background,
   },
-  content: { 
-    flex: 1, 
-    padding: 16 
+  loadingContainer: { // Added for consistency, though not used in the provided snippet
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  loadingText: { // Added for consistency
+    marginTop: 10,
+    color: COLORS.primary,
+    fontSize: 16,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingVertical: 8,
+  },
+  backButtonText: {
+    marginLeft: 5,
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 25,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   title: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#3A557C',
+    fontWeight: 'bold',
+    color: COLORS.primary,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 16,
+    color: COLORS.text,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 5,
   },
-  dayContainer: {
-    marginBottom: 16,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  dayHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  dayName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
+  section: {
+    marginBottom: 25,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: 15,
   },
-  defaultSlotsContainer: {
+  diasContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  defaultSlot: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  diaButton: {
+    width: '30%',
+    padding: 12,
+    marginBottom: 10,
     borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-    marginBottom: 8,
+    backgroundColor: COLORS.light,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  activeDefaultSlot: {
-    backgroundColor: '#3A557C',
+  diaButtonSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
-  defaultSlotText: {
+  diaButtonText: {
+    color: COLORS.text,
     fontWeight: '500',
-    color: '#374151',
   },
-  activeDefaultSlotText: {
+  diaButtonTextSelected: {
     color: 'white',
   },
-  customSlotContainer: {
+  horasContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  horaButton: {
+    width: '48%',
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 8,
+    backgroundColor: COLORS.light,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  horaButtonSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  horaButtonText: {
+    color: COLORS.text,
+    fontWeight: '500',
+  },
+  horaButtonTextSelected: {
+    color: 'white',
+  },
+  horariosList: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: 10,
+  },
+  horarioItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.light,
   },
-  timeInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    padding: 8,
-    borderRadius: 8,
-    width: 80,
+  horarioText: {
+    marginLeft: 10,
+    color: COLORS.text,
+  },
+  emptyText: {
+    color: COLORS.text,
+    fontStyle: 'italic',
     textAlign: 'center',
-    backgroundColor: 'white',
+    marginVertical: 15,
   },
-  invalidInput: {
-    borderColor: '#EF4444',
-  },
-  timeSeparator: {
-    marginHorizontal: 8,
-    color: '#6B7280',
-  },
-  slotActions: {
-    flexDirection: 'row',
-    marginLeft: 8,
-  },
-  slotButton: {
-    padding: 8,
+  button: {
+    backgroundColor: COLORS.primary,
+    padding: 16,
     borderRadius: 8,
-    marginRight: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 20,
   },
-  confirmButton: {
-    backgroundColor: '#3A557C',
-  },
-  deleteButton: {
-    backgroundColor: '#EF4444',
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: {
-    color: 'white',
-    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
-  addButton: {
-    flexDirection: 'row',
+  errorBox: {
+    flexDirection: 'column', // Changed to column for better error display with reload button
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
-    padding: 12,
+    padding: 15,
+    backgroundColor: '#FFEBEE',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderStyle: 'dashed',
-    marginTop: 8,
+    borderColor: COLORS.error,
+    gap: 10,
+    marginBottom: 20,
   },
-  addButtonText: {
-    color: '#3A557C',
-    marginLeft: 8,
+  errorText: {
+    color: COLORS.error,
+    textAlign: 'center', // Centered for multi-line messages
   },
-  actionButtons: {
+  reloadButton: { // Added reload button styles
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  actionButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 8,
     alignItems: 'center',
+    padding: 8,
+    backgroundColor: COLORS.light,
+    borderRadius: 6,
+    gap: 5,
   },
-  primaryButton: {
-    backgroundColor: '#3A557C',
-  },
-  secondaryButton: {
-    backgroundColor: '#E5E7EB',
-    marginRight: 8,
-  },
-  primaryButtonText: {
-    color: 'white',
-    fontWeight: '500',
-  },
-  secondaryButtonText: {
-    color: '#374151',
-    fontWeight: '500',
-  },
-  saveButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginLeft: 8,
+  reloadText: { // Added reload button text styles
+    color: COLORS.primary,
+    fontWeight: '600',
   },
 });

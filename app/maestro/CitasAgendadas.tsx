@@ -1,4 +1,4 @@
-// app/tutor/CitasAgendadas.tsx
+// app/maestro/Citas.tsx
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -31,13 +31,16 @@ type Cita = {
   importancia: string;
   estado: string;
   horarioId: string;
-  profesorNombre?: string;
+  tutorNombre?: string;
   directoraPresente?: boolean;
-  profesorId?: string;
+  tutorId?: string;
+  modalidad?: 'presencial' | 'linea';
 };
 
-export default function CitasAgendadas() {
-  const [citas, setCitas] = useState<Cita[]>([]);
+export default function Citas() {
+  const [activeTab, setActiveTab] = useState<'pendientes' | 'anteriores'>('pendientes');
+  const [citasPendientes, setCitasPendientes] = useState<Cita[]>([]);
+  const [citasAnteriores, setCitasAnteriores] = useState<Cita[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -47,13 +50,14 @@ export default function CitasAgendadas() {
   
     setLoading(true);
     try {
-      const snapshot = await db
+      // Cargar citas pendientes
+      const pendientesSnapshot = await db
         .collection('citas')
-        .where('tutorId', '==', user.uid)
+        .where('profesorId', '==', user.uid)
         .where('estado', '==', 'pendiente')
         .get();
   
-      const citasData = await Promise.all(snapshot.docs.map(async doc => {
+      const citasPendientesData = await Promise.all(pendientesSnapshot.docs.map(async doc => {
         const data = doc.data();
   
         // Obtener el horario completo
@@ -65,12 +69,12 @@ export default function CitasAgendadas() {
           }
         }
   
-        let profesorNombre = 'Desconocido';
-        if (data.profesorId) {
-          const profSnap = await db.collection('users').doc(data.profesorId).get();
-          if (profSnap.exists) {
-            const profData = profSnap.data();
-            profesorNombre = profData?.nombreCompleto || 'Sin nombre';
+        let tutorNombre = 'Desconocido';
+        if (data.tutorId) {
+          const tutorSnap = await db.collection('users').doc(data.tutorId).get();
+          if (tutorSnap.exists) {
+            const tutorData = tutorSnap.data();
+            tutorNombre = tutorData?.nombreCompleto || 'Sin nombre';
           }
         }
   
@@ -86,13 +90,51 @@ export default function CitasAgendadas() {
           importancia: data.importancia,
           estado: data.estado,
           horarioId: data.horarioId,
-          profesorNombre,
+          tutorNombre,
           directoraPresente: data.requiereDirectora || false,
-          profesorId: data.profesorId
+          tutorId: data.tutorId,
+          modalidad: data.modalidad || 'presencial' // Default a 'presencial' si no existe
         };
       }));
   
-      setCitas(citasData);
+      // Cargar citas anteriores (realizadas o canceladas)
+      const anterioresSnapshot = await db
+        .collection('citas')
+        .where('profesorId', '==', user.uid)
+        .where('estado', 'in', ['realizada', 'cancelada'])
+        .get();
+  
+      const citasAnterioresData = await Promise.all(anterioresSnapshot.docs.map(async doc => {
+        const data = doc.data();
+  
+        let tutorNombre = 'Desconocido';
+        if (data.tutorId) {
+          const tutorSnap = await db.collection('users').doc(data.tutorId).get();
+          if (tutorSnap.exists) {
+            const tutorData = tutorSnap.data();
+            tutorNombre = tutorData?.nombreCompleto || 'Sin nombre';
+          }
+        }
+  
+        return {
+          id: doc.id,
+          nombreAlumno: data.nombreAlumno,
+          grado: data.grado,
+          horaInicio: data.hora || 'No definida',
+          horaFin: data.horaFin || 'No definida',
+          fecha: data.fecha,
+          motivo: data.motivo,
+          importancia: data.importancia,
+          estado: data.estado,
+          tutorNombre,
+          directoraPresente: data.requiereDirectora || false,
+          tutorId: data.tutorId,
+          modalidad: data.modalidad || 'presencial' // Default a 'presencial' si no existe
+        };
+      }));
+  
+      setCitasPendientes(citasPendientesData);
+      setCitasAnteriores(citasAnterioresData);
     } catch (error) {
       console.error('Error al obtener citas:', error);
     } finally {
@@ -130,6 +172,14 @@ export default function CitasAgendadas() {
     }
   };
 
+  const getModalidadIcon = (modalidad: string) => {
+    return modalidad === 'presencial' ? 'person' : 'videocam';
+  };
+
+  const getModalidadColor = (modalidad: string) => {
+    return modalidad === 'presencial' ? COLORS.primary : COLORS.secondary;
+  };
+
   const formatDate = (fecha: any) => {
     if (!fecha || typeof fecha.toDate !== 'function') return 'Fecha no definida';
     const date = fecha.toDate();
@@ -164,7 +214,7 @@ export default function CitasAgendadas() {
     );
   };
 
-  const renderItem = ({ item }: { item: Cita }) => {
+  const renderCitaPendiente = ({ item }: { item: Cita }) => {
     const puedeModificarOCancelar = sePuedeModificarOCancelar(item.fecha);
 
     return (
@@ -176,7 +226,6 @@ export default function CitasAgendadas() {
           </View>
         </View>
         
-        {/* Seccion de fecha y hora */}
         <View style={styles.timeSection}>
           <View style={styles.dateContainer}>
             <MaterialIcons name="calendar-today" size={16} color={COLORS.primary} />
@@ -198,12 +247,24 @@ export default function CitasAgendadas() {
         
         <View style={styles.infoRow}>
           <MaterialIcons name="person" size={16} color={COLORS.primary} />
-          <Text style={styles.infoText}>Prof. {item.profesorNombre}</Text>
+          <Text style={styles.infoText}>Tutor: {item.tutorNombre}</Text>
         </View>
         
         <View style={styles.infoRow}>
           <MaterialIcons name="subject" size={16} color={COLORS.primary} />
           <Text style={styles.infoText}>{item.motivo}</Text>
+        </View>
+
+        {/* Sección de Modalidad */}
+        <View style={styles.modalidadContainer}>
+          <MaterialIcons 
+            name={getModalidadIcon(item.modalidad || 'presencial')} 
+            size={16} 
+            color={getModalidadColor(item.modalidad || 'presencial')} 
+          />
+          <Text style={[styles.modalidadText, {color: getModalidadColor(item.modalidad || 'presencial')}]}>
+            Modalidad: {item.modalidad === 'presencial' ? 'Presencial' : 'En línea'}
+          </Text>
         </View>
         
         <View style={styles.importanceContainer}>
@@ -239,7 +300,7 @@ export default function CitasAgendadas() {
             <>
               <TouchableOpacity
                 style={styles.modifyButton}
-                onPress={() => router.push(`/tutor/ModificarCita?id=${item.id}`)}
+                onPress={() => router.push(`/maestro/ModificarCita?id=${item.id}`)}
               >
                 <MaterialIcons name="edit" size={16} color="#FFF" />
                 <Text style={styles.modifyText}> Modificar</Text>
@@ -264,13 +325,73 @@ export default function CitasAgendadas() {
     );
   };
 
+  const renderCitaAnterior = ({ item }: { item: Cita }) => (
+    <View style={styles.card}>
+      <Text style={styles.nombre}>{item.nombreAlumno} ({item.grado})</Text>
+      <Text style={styles.info}><MaterialIcons name="person" size={16} color={COLORS.primary} /> Tutor: {item.tutorNombre || 'Desconocido'}</Text>
+      <Text style={styles.info}><MaterialIcons name="calendar-today" size={16} color={COLORS.primary} /> {formatDate(item.fecha)}</Text>
+      <Text style={styles.info}><MaterialIcons name="access-time" size={16} color={COLORS.primary} /> {item.horaInicio} - {item.horaFin}</Text>
+      
+      {/* Sección de Modalidad para citas anteriores */}
+      <View style={styles.infoRow}>
+        <MaterialIcons 
+          name={getModalidadIcon(item.modalidad || 'presencial')} 
+          size={16} 
+          color={getModalidadColor(item.modalidad || 'presencial')} 
+        />
+        <Text style={[styles.infoText, {color: getModalidadColor(item.modalidad || 'presencial')}]}>
+          Modalidad: {item.modalidad === 'presencial' ? 'Presencial' : 'En línea'}
+        </Text>
+      </View>
+
+      <Text
+        style={[
+          styles.estado,
+          item.estado === 'realizada' ? styles.estadoRealizada : styles.estadoCancelada
+        ]}
+      >
+        Estado: {item.estado}
+      </Text>
+
+      {item.estado === 'realizada' && (
+        <TouchableOpacity
+          style={styles.feedbackButton}
+          onPress={() => router.push({ pathname: '/maestro/Retroalimentacion', params: { citaId: item.id } })}
+        >
+          <MaterialIcons name="rate-review" size={18} color={COLORS.primary} />
+          <Text style={styles.feedbackButtonText}>Dar retroalimentación</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <HeaderAuth />
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Mis Citas Pendientes</Text>
-          <Text style={styles.subtitle}>Revisa, modifica o cancela tus citas</Text>
+          <Text style={styles.title}>Mis Citas</Text>
+          <Text style={styles.subtitle}>Administra tus citas con los tutores</Text>
+        </View>
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'pendientes' && styles.activeTab]}
+            onPress={() => setActiveTab('pendientes')}
+          >
+            <Text style={[styles.tabText, activeTab === 'pendientes' && styles.activeTabText]}>
+              Pendientes
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'anteriores' && styles.activeTab]}
+            onPress={() => setActiveTab('anteriores')}
+          >
+            <Text style={[styles.tabText, activeTab === 'anteriores' && styles.activeTabText]}>
+              Historial
+            </Text>
+          </TouchableOpacity>
         </View>
         
         {loading ? (
@@ -278,24 +399,33 @@ export default function CitasAgendadas() {
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Cargando citas...</Text>
           </View>
-        ) : citas.length === 0 ? (
+        ) : activeTab === 'pendientes' ? (
+          citasPendientes.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
+              <Text style={styles.emptyText}>No hay citas pendientes</Text>
+              <Text style={styles.emptySubtext}>Todas tus citas agendadas aparecerán aquí</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={citasPendientes}
+              keyExtractor={(item) => item.id}
+              renderItem={renderCitaPendiente}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              showsVerticalScrollIndicator={false}
+            />
+          )
+        ) : citasAnteriores.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
-            <Text style={styles.emptyText}>No hay citas pendientes</Text>
-            <Text style={styles.emptySubtext}>Todas tus citas agendadas aparecerán aquí</Text>
-            <TouchableOpacity
-              style={styles.scheduleButton}
-              onPress={() => router.push('/maestro/ContactarTutor')}
-            >
-              <MaterialIcons name="add" size={18} color="#FFF" />
-              <Text style={styles.scheduleButtonText}> Contactar Tutor</Text>
-            </TouchableOpacity>
+            <MaterialIcons name="history" size={48} color={COLORS.lightText} />
+            <Text style={styles.emptyText}>No hay citas anteriores</Text>
+            <Text style={styles.emptySubtext}>Tu historial de citas aparecerá aquí</Text>
           </View>
         ) : (
           <FlatList
-            data={citas}
+            data={citasAnteriores}
             keyExtractor={(item) => item.id}
-            renderItem={renderItem}
+            renderItem={renderCitaAnterior}
             contentContainerStyle={{ paddingBottom: 20 }}
             showsVerticalScrollIndicator={false}
           />
@@ -303,10 +433,10 @@ export default function CitasAgendadas() {
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => router.push('/maestro/MaestroHome')}
         >
           <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
-          <Text style={styles.backButtonText}>Volver</Text>
+          <Text style={styles.backButtonText}>Volver al Menú Principal</Text>
         </TouchableOpacity>
       </View>
       <Footer />
@@ -324,7 +454,7 @@ const styles = StyleSheet.create({
     padding: 16 
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   title: {
     fontSize: 24,
@@ -337,6 +467,31 @@ const styles = StyleSheet.create({
     color: COLORS.lightText,
     textAlign: 'center',
     marginTop: 4,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+    backgroundColor: '#F5F7FA',
+    borderRadius: 8,
+    padding: 4,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  activeTab: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.lightText,
+  },
+  activeTabText: {
+    color: '#FFFFFF',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -415,6 +570,23 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
+  info: {
+    fontSize: 14,
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  // Nuevos estilos para la modalidad
+  modalidadContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  modalidadText: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   importanceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -447,6 +619,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     marginLeft: 8,
+  },
+  estado: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  estadoRealizada: {
+    color: 'green',
+  },
+  estadoCancelada: {
+    color: 'red',
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -481,6 +664,23 @@ const styles = StyleSheet.create({
   cancelText: {
     color: COLORS.danger,
     fontWeight: '500',
+  },
+  feedbackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    backgroundColor: '#EAF4F4',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  feedbackButtonText: {
+    marginLeft: 6,
+    color: COLORS.primary,
+    fontWeight: '700',
+    fontSize: 14,
   },
   timeWarning: {
     flexDirection: 'row',
@@ -522,20 +722,6 @@ const styles = StyleSheet.create({
     color: COLORS.lightText,
     marginTop: 8,
     textAlign: 'center',
-  },
-  scheduleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 24,
-    width: '80%',
-  },
-  scheduleButtonText: {
-    color: '#FFF',
-    fontWeight: '500',
   },
   backButton: {
     flexDirection: 'row',

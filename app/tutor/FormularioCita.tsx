@@ -42,13 +42,13 @@ export default function FormularioCita() {
   const [motivo, setMotivo] = useState('');
   const [importancia, setImportancia] = useState('media');
   const [requiereDirectora, setRequiereDirectora] = useState(false);
+  const [modalidad, setModalidad] = useState<'presencial' | 'linea'>('presencial');
   const [profesores, setProfesores] = useState<Profesor[]>([]);
   const [horarios, setHorarios] = useState<Horario[]>([]);
   const [hijo, setHijo] = useState<{ nombre: string; grado: string } | null>(null);
   const [cargandoHorarios, setCargandoHorarios] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
-  // ✅ cargarDatosIniciales memorizado con useCallback
   const cargarDatosIniciales = useCallback(async () => {
     try {
       setErrorCarga(null);
@@ -61,7 +61,6 @@ export default function FormularioCita() {
 
       const hijoData = hijoDoc.data() as { nombre: string; grado: string };
       setHijo(hijoData);
-      console.log("Debug - Grado del alumno:", hijoData.grado);
 
       const qProfesores = query(
         collection(db, 'users'),
@@ -71,8 +70,6 @@ export default function FormularioCita() {
       );
 
       const snapshot = await getDocs(qProfesores);
-      console.log("Debug - Profesores encontrados:", snapshot.docs.map(d => d.data()));
-
       const profesoresData = snapshot.docs.map((doc) => ({
         id: doc.id,
         nombreCompleto: doc.data().nombreCompleto || 'Sin nombre',
@@ -93,7 +90,7 @@ export default function FormularioCita() {
 
   useEffect(() => {
     cargarDatosIniciales();
-  }, [cargarDatosIniciales]);
+  }, []);
 
   useEffect(() => {
     const cargarHorariosDisponibles = async () => {
@@ -141,8 +138,7 @@ export default function FormularioCita() {
       const fechaCita = horarioSeleccionado.fecha;
       if (!fechaCita || typeof fechaCita.toDate !== 'function') {
         throw new Error('Este horario no tiene una fecha válida');
-    }
-
+      }
 
       await addDoc(collection(db, 'citas'), {
         tutorId: user.uid,
@@ -154,8 +150,9 @@ export default function FormularioCita() {
         hora: horarioSeleccionado.horaInicio,
         importancia,
         requiereDirectora,
+        modalidad,
         estado: 'pendiente',
-        fechaCreacion: new Date(),
+        fechaCreacion: Timestamp.now(),
         fecha: fechaCita,
         grado: hijo?.grado,
         nombreAlumno: hijo?.nombre
@@ -164,7 +161,6 @@ export default function FormularioCita() {
       const horarioRef = doc(db, 'horarios_disponibles', horarioId);
       await updateDoc(horarioRef, { disponible: false });
   
-      console.log("Redirigiendo a citas con tutorId:", user.uid);
       router.push({
         pathname: './Detalles',
         params: {
@@ -176,16 +172,15 @@ export default function FormularioCita() {
           motivo: motivo.trim(),
           importancia,
           requiereDirectora: String(requiereDirectora),
+          modalidad,
         },
       });
       
-  
     } catch (error: any) {
-      console.error("Error al agendar:", error); // Debug
+      console.error("Error al agendar:", error);
       Alert.alert('Error', error.message);
     }
   };
-  
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -195,7 +190,7 @@ export default function FormularioCita() {
         onPress={() => router.back()}
       >
         <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
-        <Text style={styles.backButtonText}>Volver</Text>
+        <Text style={styles.backButtonText}>Regresar</Text>
       </TouchableOpacity>
 
       {/* Encabezado */}
@@ -300,7 +295,7 @@ export default function FormularioCita() {
         />
       </View>
 
-      {/* Prioridad y Directora */}
+      {/* Prioridad, Directora y Modalidad */}
       <View style={styles.inlineGroup}>
         <View style={styles.inlineItem}>
           <Text style={styles.label}>Prioridad</Text>
@@ -328,6 +323,23 @@ export default function FormularioCita() {
             </Picker>
           </View>
         </View>
+      </View>
+
+      {/* Modalidad de la cita */}
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Modalidad <Text style={styles.required}>*</Text></Text>
+        <View style={styles.pickerWrapper}>
+          <Picker
+            selectedValue={modalidad}
+            onValueChange={(itemValue) => setModalidad(itemValue as 'presencial' | 'linea')}
+          >
+            <Picker.Item label="Presencial" value="presencial" />
+            <Picker.Item label="En línea" value="linea" />
+          </Picker>
+        </View>
+        <Text style={styles.selectedValueText}>
+          Seleccionado: {modalidad === 'presencial' ? 'Presencial' : 'En línea'}
+        </Text>
       </View>
 
       {/* Botón de agendar */}
@@ -495,5 +507,11 @@ const styles = StyleSheet.create({
   reloadText: {
     color: COLORS.primary,
     fontWeight: '600',
+  },
+  selectedValueText: {
+    marginTop: 5,
+    color: COLORS.primary,
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });

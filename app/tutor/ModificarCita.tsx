@@ -27,6 +27,7 @@ export default function ModificarCita() {
   const [motivo, setMotivo] = useState('');
   const [importancia, setImportancia] = useState('media');
   const [requiereDirectora, setRequiereDirectora] = useState(false);
+  const [modalidad, setModalidad] = useState<'presencial' | 'linea'>('presencial');
   const [profesores, setProfesores] = useState<any[]>([]);
   const [horarios, setHorarios] = useState<any[]>([]);
   const [grado, setGrado] = useState('');
@@ -45,16 +46,25 @@ export default function ModificarCita() {
         setMotivo(data.motivo);
         setImportancia(data.importancia);
         setRequiereDirectora(data.requiereDirectora);
+        setModalidad(data.modalidad || 'presencial'); // Default a 'presencial' si no existe
         setProfesorId(data.profesorId);
         setHorarioId(data.horarioId);
         setGrado(data.grado);
 
-        const qProf = query(collection(db, 'users'), where('rol', '==', 'maestro'), where('gradoAsignado', '==', data.grado));
+        const qProf = query(
+          collection(db, 'users'), 
+          where('rol', '==', 'maestro'), 
+          where('gradoAsignado', '==', data.grado)
+        );
         const snapProf = await getDocs(qProf);
         const profs = snapProf.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setProfesores(profs);
 
-        const qHor = query(collection(db, 'horarios_disponibles'), where('profesorId', '==', data.profesorId), where('disponible', '==', true));
+        const qHor = query(
+          collection(db, 'horarios_disponibles'), 
+          where('profesorId', '==', data.profesorId), 
+          where('disponible', '==', true)
+        );
         const snapHor = await getDocs(qHor);
         const horariosData = snapHor.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setHorarios(horariosData);
@@ -71,7 +81,11 @@ export default function ModificarCita() {
   useEffect(() => {
     const cargarHorarios = async () => {
       if (!profesorId) return;
-      const q = query(collection(db, 'horarios_disponibles'), where('profesorId', '==', profesorId), where('disponible', '==', true));
+      const q = query(
+        collection(db, 'horarios_disponibles'), 
+        where('profesorId', '==', profesorId), 
+        where('disponible', '==', true)
+      );
       const snap = await getDocs(q);
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setHorarios(data);
@@ -82,14 +96,19 @@ export default function ModificarCita() {
 
   const handleGuardarCambios = async () => {
     try {
-      if (!profesorId || !horarioId || !motivo.trim()) throw new Error('Faltan campos requeridos');
+      if (!profesorId || !horarioId || !motivo.trim()) {
+        throw new Error('Faltan campos requeridos');
+      }
+      
       await updateDoc(doc(db, 'citas', id as string), {
         profesorId,
         horarioId,
         motivo,
         importancia,
-        requiereDirectora
+        requiereDirectora,
+        modalidad
       });
+      
       Alert.alert('Éxito', 'Cita actualizada correctamente');
       router.push('/tutor/CitasAgendadas');
     } catch (error: any) {
@@ -98,7 +117,11 @@ export default function ModificarCita() {
   };
 
   if (loading) {
-    return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
   }
 
   return (
@@ -114,7 +137,11 @@ export default function ModificarCita() {
       <View style={styles.formGroup}>
         <Text style={styles.label}>Profesor</Text>
         <View style={styles.pickerWrapper}>
-          <Picker selectedValue={profesorId} onValueChange={setProfesorId}>
+          <Picker 
+            selectedValue={profesorId} 
+            onValueChange={setProfesorId}
+            dropdownIconColor={COLORS.primary}
+          >
             <Picker.Item label="Selecciona un profesor" value="" />
             {profesores.map((p) => (
               <Picker.Item key={p.id} label={p.nombreCompleto} value={p.id} />
@@ -127,10 +154,18 @@ export default function ModificarCita() {
       <View style={styles.formGroup}>
         <Text style={styles.label}>Horario</Text>
         <View style={styles.pickerWrapper}>
-          <Picker selectedValue={horarioId} onValueChange={setHorarioId}>
+          <Picker 
+            selectedValue={horarioId} 
+            onValueChange={setHorarioId}
+            dropdownIconColor={COLORS.primary}
+          >
             <Picker.Item label="Selecciona un horario" value="" />
             {horarios.map((h) => (
-              <Picker.Item key={h.id} label={`${h.dia} ${h.horaInicio} - ${h.horaFin}`} value={h.id} />
+              <Picker.Item 
+                key={h.id} 
+                label={`${h.dia} ${h.horaInicio} - ${h.horaFin}`} 
+                value={h.id} 
+              />
             ))}
           </Picker>
         </View>
@@ -139,14 +174,42 @@ export default function ModificarCita() {
       {/* Motivo */}
       <View style={styles.formGroup}>
         <Text style={styles.label}>Motivo</Text>
-        <TextInput style={styles.textArea} multiline value={motivo} onChangeText={setMotivo} />
+        <TextInput 
+          style={styles.textArea} 
+          multiline 
+          value={motivo} 
+          onChangeText={setMotivo} 
+          placeholder="Describe el motivo de la cita"
+        />
+      </View>
+
+      {/* Modalidad */}
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Modalidad</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker
+            selectedValue={modalidad}
+            onValueChange={(itemValue) => setModalidad(itemValue as 'presencial' | 'linea')}
+            dropdownIconColor={COLORS.primary}
+          >
+            <Picker.Item label="Presencial" value="presencial" />
+            <Picker.Item label="En línea" value="linea" />
+          </Picker>
+        </View>
+        <Text style={styles.selectedValueText}>
+          Seleccionado: {modalidad === 'presencial' ? 'Presencial' : 'En línea'}
+        </Text>
       </View>
 
       {/* Importancia */}
       <View style={styles.formGroup}>
         <Text style={styles.label}>Importancia</Text>
         <View style={styles.pickerWrapper}>
-          <Picker selectedValue={importancia} onValueChange={setImportancia}>
+          <Picker 
+            selectedValue={importancia} 
+            onValueChange={setImportancia}
+            dropdownIconColor={COLORS.primary}
+          >
             <Picker.Item label="Alta" value="alta" />
             <Picker.Item label="Media" value="media" />
             <Picker.Item label="Baja" value="baja" />
@@ -158,14 +221,25 @@ export default function ModificarCita() {
       <View style={styles.formGroup}>
         <Text style={styles.label}>¿Con directora?</Text>
         <View style={styles.pickerWrapper}>
-          <Picker selectedValue={requiereDirectora} onValueChange={setRequiereDirectora}>
+          <Picker 
+            selectedValue={requiereDirectora} 
+            onValueChange={setRequiereDirectora}
+            dropdownIconColor={COLORS.primary}
+          >
             <Picker.Item label="No" value={false} />
             <Picker.Item label="Sí" value={true} />
           </Picker>
         </View>
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={handleGuardarCambios}>
+      <TouchableOpacity 
+        style={[
+          styles.button, 
+          (!profesorId || !horarioId || !motivo.trim()) && styles.buttonDisabled
+        ]} 
+        onPress={handleGuardarCambios}
+        disabled={!profesorId || !horarioId || !motivo.trim()}
+      >
         <Ionicons name="save" size={20} color="#FFF" />
         <Text style={styles.buttonText}>Guardar Cambios</Text>
       </TouchableOpacity>
@@ -240,9 +314,18 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 10,
   },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   buttonText: {
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
+  },
+  selectedValueText: {
+    marginTop: 5,
+    color: COLORS.primary,
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });
