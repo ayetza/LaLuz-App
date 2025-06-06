@@ -2,8 +2,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Timestamp, addDoc, collection, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react'; // Added useCallback
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Footer from '../../components/Footer';
+import HeaderAuth from '../../components/HeaderAuth';
 import { auth, db } from '../../lib/firebase';
 
 const COLORS = {
@@ -48,30 +50,24 @@ export default function Horarios() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Function to calculate the date for the next occurrence of a given weekday
   const generarFecha = useCallback((diaSemana: string): Date => {
     const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0); // Normalize to start of day
+    hoy.setHours(0, 0, 0, 0);
     const diaActual = hoy.getDay();
     const diaObjetivo = dias.indexOf(diaSemana);
 
     let diferencia = diaObjetivo - diaActual;
-    // If the target day has already passed this week, aim for next week
     if (diferencia < 0) {
       diferencia += 7;
     } else if (diferencia === 0) {
-      // If it's today, check if current time allows for future booking.
-      // For simplicity, let's assume if it's "today", it means "the next occurrence of today".
-      // If you need exact same-day future bookings, you'd need to compare hours.
-      // For now, if it's the same day, we treat it as next week for consistency in setting future availability.
       diferencia += 7;
     }
 
     const fecha = new Date(hoy);
     fecha.setDate(hoy.getDate() + diferencia);
     return fecha;
-  }, []); // Empty dependency array means this function is memoized once
+  }, []);
 
   const cargarHorarios = useCallback(async () => {
     try {
@@ -93,11 +89,10 @@ export default function Horarios() {
 
       setHorariosRegistrados(horariosData);
 
-      // Initialize selected days and hours based on current registered available slots
       const initialDias: string[] = [];
       const initialHoras: string[] = [];
       horariosData.forEach(horario => {
-        if (horario.disponible) { // Only pre-select truly available slots
+        if (horario.disponible) {
           if (!initialDias.includes(horario.dia)) {
             initialDias.push(horario.dia);
           }
@@ -116,11 +111,11 @@ export default function Horarios() {
     } finally {
       setCargando(false);
     }
-  }, []); // Empty dependency array as it doesn't depend on external state
+  }, []);
 
   useEffect(() => {
     cargarHorarios();
-  }, [cargarHorarios]); // Dependency on cargarHorarios, which is memoized
+  }, [cargarHorarios]);
 
   const toggleDia = (dia: string) => {
     setDiasSeleccionados(prev =>
@@ -161,7 +156,6 @@ export default function Horarios() {
         });
       });
 
-      // 1. Delete schedules that are no longer selected AND are available
       for (const [key, horario] of currentHorariosMap.entries()) {
         const isStillSelected = newHorariosToSet.some(
           nh => nh.dia === horario.dia && nh.horaInicio === horario.horaInicio && nh.horaFin === horario.horaFin
@@ -172,7 +166,6 @@ export default function Horarios() {
         }
       }
 
-      // 2. Add new schedules that were selected but don't exist yet
       for (const newHorario of newHorariosToSet) {
         const key = `${newHorario.dia}-${newHorario.horaInicio}-${newHorario.horaFin}`;
         if (!currentHorariosMap.has(key)) {
@@ -181,7 +174,7 @@ export default function Horarios() {
             dia: newHorario.dia,
             horaInicio: newHorario.horaInicio,
             horaFin: newHorario.horaFin,
-            disponible: true, // New schedules are always available initially
+            disponible: true,
             fecha: newHorario.fecha,
             nombreProfesor: user.displayName || 'Profesor'
           });
@@ -189,7 +182,7 @@ export default function Horarios() {
       }
 
       Alert.alert('Éxito', 'Horarios actualizados correctamente');
-      await cargarHorarios(); // Reload schedules to reflect changes
+      await cargarHorarios();
     } catch (error: any) {
       console.error("Error al guardar horarios:", error);
       Alert.alert('Error', error.message);
@@ -199,150 +192,158 @@ export default function Horarios() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Botón de volver */}
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => router.back()}
-      >
-        <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
-        <Text style={styles.backButtonText}>Regresar</Text>
-      </TouchableOpacity>
+    <View style={styles.mainContainer}>
+      <HeaderAuth />
+      <ScrollView contentContainerStyle={styles.container}>
+        {/* Botón de volver */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+          <Text style={styles.backButtonText}>Regresar</Text>
+        </TouchableOpacity>
 
-      {/* Encabezado */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Mis Horarios Disponibles</Text>
-        <Text style={styles.subtitle}>
-          Selecciona los días y horarios en que estás disponible para atender citas. Los horarios ya agendados no se pueden eliminar.
-        </Text>
-      </View>
-
-      {/* Mensaje de error */}
-      {error && (
-        <View style={styles.errorBox}>
-          <Ionicons name="warning" size={20} color={COLORS.error} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity
-            style={styles.reloadButton}
-            onPress={cargarHorarios}
-          >
-            <Ionicons name="refresh" size={16} color={COLORS.primary} />
-            <Text style={styles.reloadText}>Reintentar</Text>
-          </TouchableOpacity>
+        {/* Encabezado */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Mis Horarios Disponibles</Text>
+          <Text style={styles.subtitle}>
+            Selecciona los días y horarios en que estás disponible para atender citas. Los horarios ya agendados no se pueden eliminar.
+          </Text>
         </View>
-      )}
 
-      {/* Días de la semana */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Días disponibles</Text>
-        <View style={styles.diasContainer}>
-          {DIAS_SEMANA.map(dia => (
+        {/* Mensaje de error */}
+        {error && (
+          <View style={styles.errorBox}>
+            <Ionicons name="warning" size={20} color={COLORS.error} />
+            <Text style={styles.errorText}>{error}</Text>
             <TouchableOpacity
-              key={dia}
-              style={[
-                styles.diaButton,
-                diasSeleccionados.includes(dia) && styles.diaButtonSelected
-              ]}
-              onPress={() => toggleDia(dia)}
+              style={styles.reloadButton}
+              onPress={cargarHorarios}
             >
-              <Text style={[
-                styles.diaButtonText,
-                diasSeleccionados.includes(dia) && styles.diaButtonTextSelected
-              ]}>
-                {dia}
-              </Text>
+              <Ionicons name="refresh" size={16} color={COLORS.primary} />
+              <Text style={styles.reloadText}>Reintentar</Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      </View>
+          </View>
+        )}
 
-      {/* Horas disponibles */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Horas disponibles</Text>
-        <View style={styles.horasContainer}>
-          {HORAS_DISPONIBLES.map(hora => (
-            <TouchableOpacity
-              key={hora}
-              style={[
-                styles.horaButton,
-                horasSeleccionadas.includes(hora) && styles.horaButtonSelected
-              ]}
-              onPress={() => toggleHora(hora)}
-            >
-              <Text style={[
-                styles.horaButtonText,
-                horasSeleccionadas.includes(hora) && styles.horaButtonTextSelected
-              ]}>
-                {hora}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Horarios registrados */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Mis horarios registrados (y su estado)</Text>
-        {cargando ? (
-          <ActivityIndicator size="small" color={COLORS.primary} />
-        ) : horariosRegistrados.length > 0 ? (
-          <View style={styles.horariosList}>
-            {horariosRegistrados.map(horario => (
-              <View key={horario.id} style={styles.horarioItem}>
-                <Ionicons
-                  name={horario.disponible ? "checkmark-circle" : "close-circle"}
-                  size={18}
-                  color={horario.disponible ? COLORS.success : COLORS.error}
-                />
-                <Text style={styles.horarioText}>
-                  {horario.dia} {horario.horaInicio} - {horario.horaFin}
-                  <Text style={{ color: horario.disponible ? COLORS.success : COLORS.error, fontWeight: 'bold' }}>
-                    ({horario.disponible ? 'Disponible' : 'Agendado'})
-                  </Text>
+        {/* Días de la semana */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Días disponibles</Text>
+          <View style={styles.diasContainer}>
+            {DIAS_SEMANA.map(dia => (
+              <TouchableOpacity
+                key={dia}
+                style={[
+                  styles.diaButton,
+                  diasSeleccionados.includes(dia) && styles.diaButtonSelected
+                ]}
+                onPress={() => toggleDia(dia)}
+              >
+                <Text style={[
+                  styles.diaButtonText,
+                  diasSeleccionados.includes(dia) && styles.diaButtonTextSelected
+                ]}>
+                  {dia}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
-        ) : (
-          <Text style={styles.emptyText}>No has configurado ningún horario disponible.</Text>
-        )}
-      </View>
+        </View>
 
-      {/* Botón de guardar */}
-      <TouchableOpacity
-        style={[
-          styles.button,
-          (diasSeleccionados.length === 0 || horasSeleccionadas.length === 0) && styles.buttonDisabled
-        ]}
-        onPress={guardarHorarios}
-        disabled={diasSeleccionados.length === 0 || horasSeleccionadas.length === 0 || cargando}
-      >
-        {cargando ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <>
-            <Ionicons name="save" size={20} color="white" />
-            <Text style={styles.buttonText}>Guardar Horarios</Text>
-          </>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        {/* Horas disponibles */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Horas disponibles</Text>
+          <View style={styles.horasContainer}>
+            {HORAS_DISPONIBLES.map(hora => (
+              <TouchableOpacity
+                key={hora}
+                style={[
+                  styles.horaButton,
+                  horasSeleccionadas.includes(hora) && styles.horaButtonSelected
+                ]}
+                onPress={() => toggleHora(hora)}
+              >
+                <Text style={[
+                  styles.horaButtonText,
+                  horasSeleccionadas.includes(hora) && styles.horaButtonTextSelected
+                ]}>
+                  {hora}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Horarios registrados */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Mis horarios registrados (y su estado)</Text>
+          {cargando ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : horariosRegistrados.length > 0 ? (
+            <View style={styles.horariosList}>
+              {horariosRegistrados.map(horario => (
+                <View key={horario.id} style={styles.horarioItem}>
+                  <Ionicons
+                    name={horario.disponible ? "checkmark-circle" : "close-circle"}
+                    size={18}
+                    color={horario.disponible ? COLORS.success : COLORS.error}
+                  />
+                  <Text style={styles.horarioText}>
+                    {horario.dia} {horario.horaInicio} - {horario.horaFin}
+                    <Text style={{ color: horario.disponible ? COLORS.success : COLORS.error, fontWeight: 'bold' }}>
+                      ({horario.disponible ? 'Disponible' : 'Agendado'})
+                    </Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>No has configurado ningún horario disponible.</Text>
+          )}
+        </View>
+
+        {/* Botón de guardar */}
+        <TouchableOpacity
+          style={[
+            styles.button,
+            (diasSeleccionados.length === 0 || horasSeleccionadas.length === 0) && styles.buttonDisabled
+          ]}
+          onPress={guardarHorarios}
+          disabled={diasSeleccionados.length === 0 || horasSeleccionadas.length === 0 || cargando}
+        >
+          {cargando ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <>
+              <Ionicons name="save" size={20} color="white" />
+              <Text style={styles.buttonText}>Guardar Horarios</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+      <Footer />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  mainContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
   container: {
     flexGrow: 1,
     padding: 20,
-    backgroundColor: COLORS.background,
+    paddingBottom: 80, // Para que el footer no tape el contenido
   },
-  loadingContainer: { // Added for consistency, though not used in the provided snippet
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.background,
   },
-  loadingText: { // Added for consistency
+  loadingText: {
     marginTop: 10,
     color: COLORS.primary,
     fontSize: 16,
@@ -481,7 +482,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   errorBox: {
-    flexDirection: 'column', // Changed to column for better error display with reload button
+    flexDirection: 'column',
     alignItems: 'center',
     padding: 15,
     backgroundColor: '#FFEBEE',
@@ -493,9 +494,9 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: COLORS.error,
-    textAlign: 'center', // Centered for multi-line messages
+    textAlign: 'center',
   },
-  reloadButton: { // Added reload button styles
+  reloadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 8,
@@ -503,7 +504,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     gap: 5,
   },
-  reloadText: { // Added reload button text styles
+  reloadText: {
     color: COLORS.primary,
     fontWeight: '600',
   },

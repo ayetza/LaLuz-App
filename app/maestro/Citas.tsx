@@ -1,80 +1,124 @@
 import Footer from '@/components/Footer';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Dimensions, ImageBackground, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import HeaderAuth from '../../components/HeaderAuth';
+import { auth, db } from '../../lib/firebase';
 
 const { width } = Dimensions.get('window');
 
 export default function Citas() {
   const router = useRouter();
-  
+  const [loading, setLoading] = useState(true);
+  const [citasPendientes, setCitasPendientes] = useState(0);
+  const [citasRealizadas, setCitasRealizadas] = useState(0);
+
+  const cargarCitas = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      setLoading(true);
+      
+      // Obtener citas pendientes
+      const snapshotPendientes = await db.collection('citas')
+        .where('profesorId', '==', user.uid)
+        .where('estado', '==', 'pendiente')
+        .get();
+
+      // Obtener citas realizadas
+      const snapshotRealizadas = await db.collection('citas')
+        .where('profesorId', '==', user.uid)
+        .where('estado', '==', 'realizada')
+        .get();
+
+      setCitasPendientes(snapshotPendientes.size);
+      setCitasRealizadas(snapshotRealizadas.size);
+      
+    } catch (error) {
+      console.error('Error al cargar citas:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarCitas();
+  }, []);
+
   return(
     <View style={styles.container}>
       <HeaderAuth />
       
-      <ImageBackground 
-        source={require('../../assets/images/school_pattern.png')} 
-        style={styles.backgroundImage}
-        imageStyle={styles.backgroundImageStyle}
-      >
-        <View style={styles.content}>
-          <View style={styles.headerContainer}>
-            <Text style={styles.title}>Gestión de Citas</Text>
-            <Text style={styles.subtitle}>Organiza y gestiona tus reuniones con los tutores</Text>
-          </View>
-          
-          <View style={styles.menuContainer}>
-            <TouchableOpacity
-              style={[styles.menuButton, styles.agendadasButton]}
-              onPress={() => router.push('/maestro/CitasAgendadas')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.buttonContent}>
-                <View style={[styles.iconContainer, {backgroundColor: '#E6F0FA'}]}>
-                  <Ionicons name="calendar" size={24} color="#3A557C" />
-                </View>
-                <View style={styles.textContainer}>
-                  <Text style={styles.buttonText}>Citas Agendadas</Text>
-                  <Text style={styles.buttonDescription}>Revisa y gestiona tus citas programadas</Text>
-                </View>
+      <View style={styles.content}>
+        <View style={styles.headerContainer}>
+          <Text style={styles.title}>Gestión de Citas</Text>
+          <Text style={styles.subtitle}>Administra tus reuniones con los tutores</Text>
+        </View>
+        
+        <View style={styles.menuContainer}>
+          <TouchableOpacity
+            style={[styles.menuButton, styles.agendadasButton]}
+            onPress={() => router.push('/maestro/CitasAgendadas')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.buttonContent}>
+              <View style={[styles.iconContainer, {backgroundColor: '#E6F0FA'}]}>
+                <Ionicons name="list" size={24} color="#3A557C" />
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+              <View style={styles.textContainer}>
+                <Text style={styles.buttonText}>Ver Todas las Citas</Text>
+                <Text style={styles.buttonDescription}>Revisa tu historial completo de citas</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+          </TouchableOpacity>
+        </View>
+        
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3A557C" />
+          </View>
+        ) : (
+          <View style={styles.statsContainer}>
+            <TouchableOpacity 
+              style={styles.statCard}
+              onPress={() => router.push('/maestro/CitasAgendadas?estado=pendiente')}
+            >
+              <MaterialIcons name="pending-actions" size={24} color="#3A557C" />
+              <Text style={styles.statNumber}>{citasPendientes}</Text>
+              <Text style={styles.statLabel}>Pendientes</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.menuButton, styles.horariosButton]}
-              onPress={() => router.push('/maestro/Horarios')}
-              activeOpacity={0.8}
+            <TouchableOpacity 
+              style={styles.statCard}
+              onPress={() => router.push('/maestro/CitasAgendadas?estado=realizada')}
             >
-              <View style={styles.buttonContent}>
-                <View style={[styles.iconContainer, {backgroundColor: '#E6F6EF'}]}>
-                  <Ionicons name="time" size={24} color="#4C9C82" />
-                </View>
-                <View style={styles.textContainer}>
-                  <Text style={styles.buttonText}>Disponibilidad</Text>
-                  <Text style={styles.buttonDescription}>Configura tus horarios disponibles</Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+              <MaterialIcons name="check-circle" size={24} color="#4C9C82" />
+              <Text style={[styles.statNumber, {color: '#4C9C82'}]}>{citasRealizadas}</Text>
+              <Text style={styles.statLabel}>Realizadas</Text>
             </TouchableOpacity>
           </View>
-          
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <MaterialIcons name="event-available" size={24} color="#3A557C" />
-              <Text style={styles.statNumber}>12</Text>
-              <Text style={styles.statLabel}>Citas este mes</Text>
+        )}
+        
+        <TouchableOpacity
+          style={[styles.menuButton, styles.horariosButton]}
+          onPress={() => router.push('/maestro/Horarios')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.buttonContent}>
+            <View style={[styles.iconContainer, {backgroundColor: '#E6F6EF'}]}>
+              <Ionicons name="time" size={24} color="#4C9C82" />
             </View>
-            <View style={styles.statCard}>
-              <MaterialIcons name="pending-actions" size={24} color="#3A557C" />
-              <Text style={styles.statNumber}>3</Text>
-              <Text style={styles.statLabel}>Pendientes</Text>
+            <View style={styles.textContainer}>
+              <Text style={styles.buttonText}>Configurar Horarios</Text>
+              <Text style={styles.buttonDescription}>Gestiona tu disponibilidad para citas</Text>
             </View>
           </View>
-        </View>
-      </ImageBackground>
+          <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.footerActions}>
         <TouchableOpacity
@@ -96,25 +140,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
-  backgroundImage: {
-    flex: 1,
-  },
-  backgroundImageStyle: {
-    opacity: 0.05,
-  },
   content: {
     flex: 1,
     padding: 24,
-    paddingTop: 16,
+    paddingTop: 60, // Aumentado para más espacio debajo del header
   },
   headerContainer: {
-    marginBottom: 32,
+    marginBottom: 30, // Aumentado para más espacio después del título
     alignItems: 'center',
   },
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#3A557C', // Cambiado a #3A557C como solicitaste
+    color: '#3A557C',
     marginBottom: 8,
     letterSpacing: 0.5,
   },
@@ -125,7 +163,7 @@ const styles = StyleSheet.create({
     maxWidth: '80%',
   },
   menuContainer: {
-    marginBottom: 32,
+    marginBottom: 16,
   },
   menuButton: {
     backgroundColor: 'white',
@@ -225,5 +263,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 120,
   },
 });

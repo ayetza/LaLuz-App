@@ -38,9 +38,7 @@ type Cita = {
 };
 
 export default function Citas() {
-  const [activeTab, setActiveTab] = useState<'pendientes' | 'anteriores'>('pendientes');
-  const [citasPendientes, setCitasPendientes] = useState<Cita[]>([]);
-  const [citasAnteriores, setCitasAnteriores] = useState<Cita[]>([]);
+  const [citas, setCitas] = useState<Cita[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -50,17 +48,15 @@ export default function Citas() {
   
     setLoading(true);
     try {
-      // Cargar citas pendientes
-      const pendientesSnapshot = await db
+      const snapshot = await db
         .collection('citas')
         .where('profesorId', '==', user.uid)
         .where('estado', '==', 'pendiente')
         .get();
   
-      const citasPendientesData = await Promise.all(pendientesSnapshot.docs.map(async doc => {
+      const citasData = await Promise.all(snapshot.docs.map(async doc => {
         const data = doc.data();
   
-        // Obtener el horario completo
         let horarioData = null;
         if (data.horarioId) {
           const horarioSnap = await db.collection('horarios_disponibles').doc(data.horarioId).get();
@@ -93,48 +89,11 @@ export default function Citas() {
           tutorNombre,
           directoraPresente: data.requiereDirectora || false,
           tutorId: data.tutorId,
-          modalidad: data.modalidad || 'presencial' // Default a 'presencial' si no existe
+          modalidad: data.modalidad || 'presencial'
         };
       }));
   
-      // Cargar citas anteriores (realizadas o canceladas)
-      const anterioresSnapshot = await db
-        .collection('citas')
-        .where('profesorId', '==', user.uid)
-        .where('estado', 'in', ['realizada', 'cancelada'])
-        .get();
-  
-      const citasAnterioresData = await Promise.all(anterioresSnapshot.docs.map(async doc => {
-        const data = doc.data();
-  
-        let tutorNombre = 'Desconocido';
-        if (data.tutorId) {
-          const tutorSnap = await db.collection('users').doc(data.tutorId).get();
-          if (tutorSnap.exists) {
-            const tutorData = tutorSnap.data();
-            tutorNombre = tutorData?.nombreCompleto || 'Sin nombre';
-          }
-        }
-  
-        return {
-          id: doc.id,
-          nombreAlumno: data.nombreAlumno,
-          grado: data.grado,
-          horaInicio: data.hora || 'No definida',
-          horaFin: data.horaFin || 'No definida',
-          fecha: data.fecha,
-          motivo: data.motivo,
-          importancia: data.importancia,
-          estado: data.estado,
-          tutorNombre,
-          directoraPresente: data.requiereDirectora || false,
-          tutorId: data.tutorId,
-          modalidad: data.modalidad || 'presencial' // Default a 'presencial' si no existe
-        };
-      }));
-  
-      setCitasPendientes(citasPendientesData);
-      setCitasAnteriores(citasAnterioresData);
+      setCitas(citasData);
     } catch (error) {
       console.error('Error al obtener citas:', error);
     } finally {
@@ -214,7 +173,31 @@ export default function Citas() {
     );
   };
 
-  const renderCitaPendiente = ({ item }: { item: Cita }) => {
+  const actualizarEstadoCita = async (id: string, estado: 'realizada' | 'no realizada') => {
+    Alert.alert(
+      `¿Marcar como ${estado === 'realizada' ? 'realizada' : 'no realizada'}?`,
+      `Confirma que esta cita ${estado === 'realizada' ? 'se llevó a cabo' : 'no se realizó'}.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar',
+          style: 'default',
+          onPress: async () => {
+            try {
+              await db.collection('citas').doc(id).update({ estado });
+              cargarCitas();
+            } catch (error) {
+              console.error(`Error al marcar cita como ${estado}:`, error);
+              Alert.alert('Error', `No se pudo actualizar el estado de la cita`);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const renderCita = ({ item }: { item: Cita }) => {
     const puedeModificarOCancelar = sePuedeModificarOCancelar(item.fecha);
 
     return (
@@ -255,7 +238,6 @@ export default function Citas() {
           <Text style={styles.infoText}>{item.motivo}</Text>
         </View>
 
-        {/* Sección de Modalidad */}
         <View style={styles.modalidadContainer}>
           <MaterialIcons 
             name={getModalidadIcon(item.modalidad || 'presencial')} 
@@ -297,7 +279,7 @@ export default function Citas() {
 
         <View style={styles.buttonContainer}>
           {puedeModificarOCancelar ? (
-            <>
+            <View style={styles.topButtonsContainer}>
               <TouchableOpacity
                 style={styles.modifyButton}
                 onPress={() => router.push(`/maestro/ModificarCita?id=${item.id}`)}
@@ -313,57 +295,35 @@ export default function Citas() {
                 <MaterialIcons name="cancel" size={16} color={COLORS.danger} />
                 <Text style={styles.cancelText}> Cancelar</Text>
               </TouchableOpacity>
-            </>
+            </View>
           ) : (
             <View style={styles.timeWarning}>
               <MaterialIcons name="watch-later" size={16} color={COLORS.lightText} />
               <Text style={styles.timeWarningText}>Solo modificable/cancelable con 24h de anticipación</Text>
             </View>
           )}
+          
+          <View style={styles.estadoButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.estadoButton, styles.realizadaButton]}
+              onPress={() => actualizarEstadoCita(item.id, 'realizada')}
+            >
+              <MaterialIcons name="check-circle" size={16} color={COLORS.success} />
+              <Text style={styles.realizadaText}> Se realizó</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.estadoButton, styles.noRealizadaButton]}
+              onPress={() => actualizarEstadoCita(item.id, 'no realizada')}
+            >
+              <MaterialIcons name="highlight-off" size={16} color={COLORS.danger} />
+              <Text style={styles.noRealizadaText}> No se realizó</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   };
-
-  const renderCitaAnterior = ({ item }: { item: Cita }) => (
-    <View style={styles.card}>
-      <Text style={styles.nombre}>{item.nombreAlumno} ({item.grado})</Text>
-      <Text style={styles.info}><MaterialIcons name="person" size={16} color={COLORS.primary} /> Tutor: {item.tutorNombre || 'Desconocido'}</Text>
-      <Text style={styles.info}><MaterialIcons name="calendar-today" size={16} color={COLORS.primary} /> {formatDate(item.fecha)}</Text>
-      <Text style={styles.info}><MaterialIcons name="access-time" size={16} color={COLORS.primary} /> {item.horaInicio} - {item.horaFin}</Text>
-      
-      {/* Sección de Modalidad para citas anteriores */}
-      <View style={styles.infoRow}>
-        <MaterialIcons 
-          name={getModalidadIcon(item.modalidad || 'presencial')} 
-          size={16} 
-          color={getModalidadColor(item.modalidad || 'presencial')} 
-        />
-        <Text style={[styles.infoText, {color: getModalidadColor(item.modalidad || 'presencial')}]}>
-          Modalidad: {item.modalidad === 'presencial' ? 'Presencial' : 'En línea'}
-        </Text>
-      </View>
-
-      <Text
-        style={[
-          styles.estado,
-          item.estado === 'realizada' ? styles.estadoRealizada : styles.estadoCancelada
-        ]}
-      >
-        Estado: {item.estado}
-      </Text>
-
-      {item.estado === 'realizada' && (
-        <TouchableOpacity
-          style={styles.feedbackButton}
-          onPress={() => router.push({ pathname: '/maestro/Retroalimentacion', params: { citaId: item.id } })}
-        >
-          <MaterialIcons name="rate-review" size={18} color={COLORS.primary} />
-          <Text style={styles.feedbackButtonText}>Dar retroalimentación</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
 
   return (
     <View style={styles.container}>
@@ -373,59 +333,23 @@ export default function Citas() {
           <Text style={styles.title}>Mis Citas</Text>
           <Text style={styles.subtitle}>Administra tus citas con los tutores</Text>
         </View>
-
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'pendientes' && styles.activeTab]}
-            onPress={() => setActiveTab('pendientes')}
-          >
-            <Text style={[styles.tabText, activeTab === 'pendientes' && styles.activeTabText]}>
-              Pendientes
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'anteriores' && styles.activeTab]}
-            onPress={() => setActiveTab('anteriores')}
-          >
-            <Text style={[styles.tabText, activeTab === 'anteriores' && styles.activeTabText]}>
-              Historial
-            </Text>
-          </TouchableOpacity>
-        </View>
         
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Cargando citas...</Text>
           </View>
-        ) : activeTab === 'pendientes' ? (
-          citasPendientes.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
-              <Text style={styles.emptyText}>No hay citas pendientes</Text>
-              <Text style={styles.emptySubtext}>Todas tus citas agendadas aparecerán aquí</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={citasPendientes}
-              keyExtractor={(item) => item.id}
-              renderItem={renderCitaPendiente}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              showsVerticalScrollIndicator={false}
-            />
-          )
-        ) : citasAnteriores.length === 0 ? (
+        ) : citas.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="history" size={48} color={COLORS.lightText} />
-            <Text style={styles.emptyText}>No hay citas anteriores</Text>
-            <Text style={styles.emptySubtext}>Tu historial de citas aparecerá aquí</Text>
+            <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
+            <Text style={styles.emptyText}>No hay citas pendientes</Text>
+            <Text style={styles.emptySubtext}>Todas tus citas agendadas aparecerán aquí</Text>
           </View>
         ) : (
           <FlatList
-            data={citasAnteriores}
+            data={citas}
             keyExtractor={(item) => item.id}
-            renderItem={renderCitaAnterior}
+            renderItem={renderCita}
             contentContainerStyle={{ paddingBottom: 20 }}
             showsVerticalScrollIndicator={false}
           />
@@ -433,10 +357,10 @@ export default function Citas() {
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.push('/maestro/MaestroHome')}
+          onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
-          <Text style={styles.backButtonText}>Volver al Menú Principal</Text>
+          <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+          <Text style={styles.backButtonText}>Regresar</Text>
         </TouchableOpacity>
       </View>
       <Footer />
@@ -467,31 +391,6 @@ const styles = StyleSheet.create({
     color: COLORS.lightText,
     textAlign: 'center',
     marginTop: 4,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-    backgroundColor: '#F5F7FA',
-    borderRadius: 8,
-    padding: 4,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  activeTab: {
-    backgroundColor: COLORS.primary,
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.lightText,
-  },
-  activeTabText: {
-    color: '#FFFFFF',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -570,12 +469,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
-  info: {
-    fontSize: 14,
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  // Nuevos estilos para la modalidad
   modalidadContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -620,21 +513,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 8,
   },
-  estado: {
-    marginTop: 8,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  estadoRealizada: {
-    color: 'green',
-  },
-  estadoCancelada: {
-    color: 'red',
-  },
   buttonContainer: {
+    marginTop: 12,
+  },
+  topButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 12,
+    marginBottom: 8,
   },
   modifyButton: {
     flex: 1,
@@ -665,22 +550,36 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontWeight: '500',
   },
-  feedbackButton: {
+  estadoButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  estadoButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    backgroundColor: '#EAF4F4',
+    justifyContent: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: COLORS.primary,
   },
-  feedbackButtonText: {
-    marginLeft: 6,
-    color: COLORS.primary,
-    fontWeight: '700',
-    fontSize: 14,
+  realizadaButton: {
+    backgroundColor: '#E8F5E9',
+    borderColor: COLORS.success,
+    marginRight: 8,
+  },
+  realizadaText: {
+    color: COLORS.success,
+    fontWeight: '500',
+  },
+  noRealizadaButton: {
+    backgroundColor: '#FFEBEE',
+    borderColor: COLORS.danger,
+  },
+  noRealizadaText: {
+    color: COLORS.danger,
+    fontWeight: '500',
   },
   timeWarning: {
     flexDirection: 'row',
@@ -690,6 +589,7 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: '#F5F5F5',
     borderRadius: 6,
+    marginBottom: 8,
   },
   timeWarningText: {
     fontSize: 12,
@@ -726,16 +626,13 @@ const styles = StyleSheet.create({
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 24,
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#F5F7FA',
+    marginBottom: 15,
+    paddingVertical: 8,
   },
   backButtonText: {
+    marginLeft: 5,
     color: COLORS.primary,
-    fontWeight: '600',
     fontSize: 16,
-    marginLeft: 8,
+    fontWeight: '600',
   },
 });
