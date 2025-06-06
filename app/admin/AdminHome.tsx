@@ -2,14 +2,14 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Image,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  ActivityIndicator
+  View
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import Footer from '../../components/Footer';
@@ -17,7 +17,7 @@ import HeaderAuth from '../../components/HeaderAuth';
 import { auth, db } from '../../lib/firebase';
 
 type AdminRoutes =
-  | '/admin/ContactarUsuario'
+  | '/admin/AdminToolsMenu'
   | '/admin/CitasAgendadas' 
   | '/admin/CitasAnteriores'
   | '/admin/Buzon'
@@ -51,7 +51,7 @@ const ADMIN_BASE_OPTIONS: OptionItem[] = [
   { 
     label: 'Contactar Usuario', 
     icon: 'message-square', 
-    route: '/admin/ContactarUsuario',
+    route: '/admin/AdminToolsMenu',
     description: 'Comunicación con maestros y tutores'
   },
   { 

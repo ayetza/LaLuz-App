@@ -1,8 +1,8 @@
-// app/admin/CitasAgendadasAdmin.tsx
+// app/admin/CitasAgendadas.tsx
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Footer from '../../components/Footer';
 import HeaderAuth from '../../components/HeaderAuth';
 import { auth, db } from '../../lib/firebase';
@@ -31,40 +31,35 @@ type Cita = {
   importancia: string;
   estado: string;
   horarioId: string;
-  profesorNombre?: string;
-  directoraPresente?: boolean;
-  profesorId?: string;
   tutorNombre?: string;
+  profesorNombre?: string;
+  requiereDirectora?: boolean;
+  tutorId?: string;
+  profesorId?: string;
+  modalidad?: 'presencial' | 'linea';
 };
 
-export default function CitasAgendadasAdmin() {
+export default function CitasAdmin() {
+  const [activeTab, setActiveTab] = useState<'requiereDirectora' | 'noRequiereDirectora'>('requiereDirectora');
   const [citas, setCitas] = useState<Cita[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const cargarCitas = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+  
     setLoading(true);
     try {
-      // Obtener el ID del usuario actual (directora)
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        setError('No se pudo obtener la información del usuario. Por favor, inicia sesión de nuevo.');
-        setLoading(false);
-        return;
-      }
-
-      // Consulta modificada: solo citas pendientes y asignadas a esta directora
       const snapshot = await db
         .collection('citas')
         .where('estado', '==', 'pendiente')
-        .where('adminId', '==', userId) 
+        .where('requiereDirectora', '==', activeTab === 'requiereDirectora')
         .get();
   
       const citasData = await Promise.all(snapshot.docs.map(async doc => {
         const data = doc.data();
-
-        // Obtener el horario completo
+  
         let horarioData = null;
         if (data.horarioId) {
           const horarioSnap = await db.collection('horarios_disponibles').doc(data.horarioId).get();
@@ -73,21 +68,21 @@ export default function CitasAgendadasAdmin() {
           }
         }
   
-        let profesorNombre = 'Desconocido';
-        if (data.profesorId) {
-          const profSnap = await db.collection('users').doc(data.profesorId).get();
-          if (profSnap.exists) {
-            const profData = profSnap.data();
-            profesorNombre = profData?.nombreCompleto || 'Sin nombre';
-          }
-        }
-        
         let tutorNombre = 'Desconocido';
         if (data.tutorId) {
           const tutorSnap = await db.collection('users').doc(data.tutorId).get();
           if (tutorSnap.exists) {
             const tutorData = tutorSnap.data();
             tutorNombre = tutorData?.nombreCompleto || 'Sin nombre';
+          }
+        }
+
+        let profesorNombre = 'Desconocido';
+        if (data.profesorId) {
+          const profesorSnap = await db.collection('users').doc(data.profesorId).get();
+          if (profesorSnap.exists) {
+            const profesorData = profesorSnap.data();
+            profesorNombre = profesorData?.nombreCompleto || 'Sin nombre';
           }
         }
   
@@ -103,17 +98,18 @@ export default function CitasAgendadasAdmin() {
           importancia: data.importancia,
           estado: data.estado,
           horarioId: data.horarioId,
-          profesorNombre,
           tutorNombre,
-          directoraPresente: data.requiereDirectora || false,
-          profesorId: data.profesorId
+          profesorNombre,
+          requiereDirectora: data.requiereDirectora || false,
+          tutorId: data.tutorId,
+          profesorId: data.profesorId,
+          modalidad: data.modalidad || 'presencial'
         };
       }));
   
       setCitas(citasData);
     } catch (error) {
       console.error('Error al obtener citas:', error);
-      setError('Error al cargar las citas. Por favor, inténtalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -121,7 +117,7 @@ export default function CitasAgendadasAdmin() {
 
   useEffect(() => {
     cargarCitas();
-  }, []);
+  }, [activeTab]);
 
   const sePuedeModificarOCancelar = (fecha: any): boolean => {
     if (!fecha || typeof fecha.toDate !== 'function') return false;
@@ -147,6 +143,14 @@ export default function CitasAgendadasAdmin() {
       case 'baja': return 'check-circle-outline';
       default: return 'info-outline';
     }
+  };
+
+  const getModalidadIcon = (modalidad: string) => {
+    return modalidad === 'presencial' ? 'person' : 'videocam';
+  };
+
+  const getModalidadColor = (modalidad: string) => {
+    return modalidad === 'presencial' ? COLORS.primary : COLORS.secondary;
   };
 
   const formatDate = (fecha: any) => {
@@ -175,13 +179,47 @@ export default function CitasAgendadasAdmin() {
               cargarCitas();
             } catch (error) {
               console.error('Error al cancelar cita:', error);
-              Alert.alert('Error', 'No se pudo cancelar la cita. Por favor, inténtalo de nuevo.');
             }
           },
         },
       ],
       { cancelable: true }
     );
+  };
+
+  const actualizarEstadoCita = async (id: string, estado: 'realizada' | 'no realizada') => {
+    Alert.alert(
+      `¿Marcar como ${estado === 'realizada' ? 'realizada' : 'no realizada'}?`,
+      `Confirma que esta cita ${estado === 'realizada' ? 'se llevó a cabo' : 'no se realizó'}.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar',
+          style: 'default',
+          onPress: async () => {
+            try {
+              await db.collection('citas').doc(id).update({ estado });
+              cargarCitas();
+            } catch (error) {
+              console.error(`Error al marcar cita como ${estado}:`, error);
+              Alert.alert('Error', `No se pudo actualizar el estado de la cita`);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const toggleDirectoraPresencia = async (id: string, currentValue: boolean) => {
+    try {
+      await db.collection('citas').doc(id).update({ 
+        requiereDirectora: !currentValue 
+      });
+      cargarCitas();
+    } catch (error) {
+      console.error('Error al actualizar presencia de directora:', error);
+    }
   };
 
   const renderItem = ({ item }: { item: Cita }) => {
@@ -196,7 +234,6 @@ export default function CitasAgendadasAdmin() {
           </View>
         </View>
         
-        {/* Seccion de fecha y hora */}
         <View style={styles.timeSection}>
           <View style={styles.dateContainer}>
             <MaterialIcons name="calendar-today" size={16} color={COLORS.primary} />
@@ -220,15 +257,26 @@ export default function CitasAgendadasAdmin() {
           <MaterialIcons name="person" size={16} color={COLORS.primary} />
           <Text style={styles.infoText}>Tutor: {item.tutorNombre}</Text>
         </View>
-        
+
         <View style={styles.infoRow}>
-          <MaterialIcons name="person" size={16} color={COLORS.primary} />
-          <Text style={styles.infoText}>Prof. {item.profesorNombre}</Text>
+          <MaterialIcons name="school" size={16} color={COLORS.primary} />
+          <Text style={styles.infoText}>Profesor: {item.profesorNombre}</Text>
         </View>
         
         <View style={styles.infoRow}>
           <MaterialIcons name="subject" size={16} color={COLORS.primary} />
           <Text style={styles.infoText}>{item.motivo}</Text>
+        </View>
+
+        <View style={styles.modalidadContainer}>
+          <MaterialIcons 
+            name={getModalidadIcon(item.modalidad || 'presencial')} 
+            size={16} 
+            color={getModalidadColor(item.modalidad || 'presencial')} 
+          />
+          <Text style={[styles.modalidadText, {color: getModalidadColor(item.modalidad || 'presencial')}]}>
+            Modalidad: {item.modalidad === 'presencial' ? 'Presencial' : 'En línea'}
+          </Text>
         </View>
         
         <View style={styles.importanceContainer}>
@@ -242,26 +290,36 @@ export default function CitasAgendadasAdmin() {
           </Text>
         </View>
         
-        <View style={[
-          styles.directoraContainer,
-          item.directoraPresente ? styles.directoraPresente : styles.directoraNoPresente
-        ]}>
+        <TouchableOpacity 
+          style={[
+            styles.directoraContainer,
+            item.requiereDirectora ? styles.directoraPresente : styles.directoraNoPresente
+          ]}
+          onPress={() => toggleDirectoraPresencia(item.id, item.requiereDirectora || false)}
+        >
           <MaterialIcons 
-            name={item.directoraPresente ? "verified-user" : "person-off"} 
+            name={item.requiereDirectora ? "verified-user" : "person-off"} 
             size={16} 
-            color={item.directoraPresente ? COLORS.success : COLORS.lightText} 
+            color={item.requiereDirectora ? COLORS.success : COLORS.lightText} 
           />
           <Text style={[
             styles.directoraText,
-            {color: item.directoraPresente ? COLORS.success : COLORS.lightText}
+            {color: item.requiereDirectora ? COLORS.success : COLORS.lightText}
           ]}>
-            {item.directoraPresente ? "Directora estará presente" : "Directora no estará presente"}
+            {item.requiereDirectora ? "Directora participará" : "Directora no participará"}
           </Text>
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.buttonContainer}>
           {puedeModificarOCancelar ? (
-            <>
+            <View style={styles.topButtonsContainer}>
+              <TouchableOpacity
+                style={styles.modifyButton}
+                onPress={() => router.push(`/admin/ModificarCita?id=${item.id}`)}
+              >
+                <MaterialIcons name="edit" size={16} color="#FFF" />
+                <Text style={styles.modifyText}> Modificar</Text>
+              </TouchableOpacity>
               
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -270,13 +328,31 @@ export default function CitasAgendadasAdmin() {
                 <MaterialIcons name="cancel" size={16} color={COLORS.danger} />
                 <Text style={styles.cancelText}> Cancelar</Text>
               </TouchableOpacity>
-            </>
+            </View>
           ) : (
             <View style={styles.timeWarning}>
               <MaterialIcons name="watch-later" size={16} color={COLORS.lightText} />
               <Text style={styles.timeWarningText}>Solo modificable/cancelable con 24h de anticipación</Text>
             </View>
           )}
+          
+          <View style={styles.estadoButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.estadoButton, styles.realizadaButton]}
+              onPress={() => actualizarEstadoCita(item.id, 'realizada')}
+            >
+              <MaterialIcons name="check-circle" size={16} color={COLORS.success} />
+              <Text style={styles.realizadaText}> Se realizó</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.estadoButton, styles.noRealizadaButton]}
+              onPress={() => actualizarEstadoCita(item.id, 'no realizada')}
+            >
+              <MaterialIcons name="highlight-off" size={16} color={COLORS.danger} />
+              <Text style={styles.noRealizadaText}> No se realizó</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
@@ -285,58 +361,64 @@ export default function CitasAgendadasAdmin() {
   return (
     <View style={styles.container}>
       <HeaderAuth />
-      
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-      >
+      <View style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.title}>Citas Pendientes</Text>
-          <Text style={styles.subtitle}>Administra tus citas como directora</Text>
+          <Text style={styles.subtitle}>Administra las citas agendadas</Text>
+        </View>
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'requiereDirectora' && styles.activeTab]} 
+            onPress={() => setActiveTab('requiereDirectora')}
+          >
+            <Text style={[styles.tabText, activeTab === 'requiereDirectora' && styles.activeTabText]}>
+              Requiere Directora
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'noRequiereDirectora' && styles.activeTab]} 
+            onPress={() => setActiveTab('noRequiereDirectora')}
+          >
+            <Text style={[styles.tabText, activeTab === 'noRequiereDirectora' && styles.activeTabText]}>
+              No Requiere
+            </Text>
+          </TouchableOpacity>
         </View>
         
-        {error ? (
-          <View style={styles.errorContainer}>
-            <MaterialIcons name="error-outline" size={32} color={COLORS.danger} />
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity
-              style={styles.retryButton}
-              onPress={cargarCitas}
-            >
-              <Text style={styles.retryButtonText}>Reintentar</Text>
-            </TouchableOpacity>
-          </View>
-        ) : loading ? (
+        {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.loadingText}>Cargando tus citas...</Text>
+            <Text style={styles.loadingText}>Cargando citas...</Text>
           </View>
         ) : citas.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialIcons name="event-available" size={48} color={COLORS.lightText} />
-            <Text style={styles.emptyText}>No tienes citas pendientes</Text>
-            <Text style={styles.emptySubtext}>Las citas asignadas a ti aparecerán aquí</Text>
+            <Text style={styles.emptyText}>
+              {activeTab === 'requiereDirectora' 
+                ? 'No hay citas pendientes que requieran directora' 
+                : 'No hay citas pendientes que no requieran directora'}
+            </Text>
           </View>
         ) : (
-          <View style={styles.citasContainer}>
-            {citas.map((item) => (
-              <View key={item.id}>
-                {renderItem({item})}
-              </View>
-            ))}
-          </View>
+          <FlatList
+            data={citas}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            showsVerticalScrollIndicator={false}
+          />
         )}
 
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.push('/admin/AdminHome')}
         >
-          <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
-          <Text style={styles.backButtonText}>Volver al Panel de Administración</Text>
+          <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+          <Text style={styles.backButtonText}>Regresar</Text>
         </TouchableOpacity>
-        
-        <Footer />
-      </ScrollView>
+      </View>
+      <Footer />
     </View>
   );
 }
@@ -346,17 +428,12 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: COLORS.background 
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 30,
+  content: { 
+    flex: 1, 
+    padding: 16 
   },
   header: {
-    marginBottom: 24,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    marginBottom: 16,
   },
   title: {
     fontSize: 24,
@@ -370,12 +447,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#F5F7FA',
+    borderRadius: 8,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: '#3A557C',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  activeTabText: {
+    color: '#FFFFFF',
+  },
   card: {
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 8,
     marginBottom: 16,
-    marginHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -448,6 +549,17 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
+  modalidadContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  modalidadText: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   importanceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,9 +594,12 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   buttonContainer: {
+    marginTop: 12,
+  },
+  topButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 12,
+    marginBottom: 8,
   },
   modifyButton: {
     flex: 1,
@@ -515,6 +630,37 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontWeight: '500',
   },
+  estadoButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  estadoButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  realizadaButton: {
+    backgroundColor: '#E8F5E9',
+    borderColor: COLORS.success,
+    marginRight: 8,
+  },
+  realizadaText: {
+    color: COLORS.success,
+    fontWeight: '500',
+  },
+  noRealizadaButton: {
+    backgroundColor: '#FFEBEE',
+    borderColor: COLORS.danger,
+  },
+  noRealizadaText: {
+    color: COLORS.danger,
+    fontWeight: '500',
+  },
   timeWarning: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -523,6 +669,7 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: '#F5F5F5',
     borderRadius: 6,
+    marginBottom: 8,
   },
   timeWarningText: {
     fontSize: 12,
@@ -533,13 +680,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
   },
   loadingText: {
     marginTop: 16,
     color: COLORS.lightText,
   },
   emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
@@ -550,51 +697,16 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: 'center',
   },
-  emptySubtext: {
-    fontSize: 14,
-    color: COLORS.lightText,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  citasContainer: {
-    paddingBottom: 20,
-  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 24,
-    marginHorizontal: 16,
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#F5F7FA',
+    marginBottom: 15,
+    paddingVertical: 8,
   },
   backButtonText: {
+    marginLeft: 5,
     color: COLORS.primary,
+    fontSize: 16,
     fontWeight: '600',
-    fontSize: 16,
-    marginLeft: 8,
-  },
-  errorContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  errorText: {
-    fontSize: 16,
-    color: COLORS.danger,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    backgroundColor: COLORS.primary,
-    borderRadius: 6,
-  },
-  retryButtonText: {
-    color: '#FFF',
-    fontWeight: '500',
   },
 });

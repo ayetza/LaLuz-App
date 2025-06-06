@@ -12,22 +12,35 @@ const COLORS = {
   text: '#1A1A1A',
   lightText: '#666666',
   border: '#E0E0E0',
+  success: '#10B981',
+  warning: '#F59E0B',
+  danger: '#EF4444',
   buttonBg: '#F5F7FA',
 };
 
 export default function CitasAnteriores() {
+  const [activeTab, setActiveTab] = useState<'realizadas' | 'noRealizadas'>('realizadas');
   const [citas, setCitas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retroVisibleId, setRetroVisibleId] = useState<string | null>(null);
   const router = useRouter();
 
   const cargarCitasPasadas = async () => {
     const user = auth.currentUser;
     if (!user) return;
+    
     try {
+      setLoading(true);
+      let estadoQuery = 'realizada';
+      
+      if (activeTab === 'noRealizadas') {
+        estadoQuery = ['cancelada', 'no realizada'];
+      }
+
       const snapshot = await db
         .collection('citas')
         .where('tutorId', '==', user.uid)
-        .where('estado', 'in', ['realizada', 'cancelada'])
+        .where('estado', activeTab === 'realizadas' ? '==' : 'in', estadoQuery)
         .get();
 
       const citasData = await Promise.all(
@@ -64,7 +77,7 @@ export default function CitasAnteriores() {
 
   useEffect(() => {
     cargarCitasPasadas();
-  }, []);
+  }, [activeTab]);
 
   const formatDate = (fecha: any) => {
     if (!fecha || typeof fecha.toDate !== 'function') return 'Fecha inválida';
@@ -86,34 +99,72 @@ export default function CitasAnteriores() {
       <Text
         style={[
           styles.estado,
-          item.estado === 'realizada' ? styles.estadoRealizada : styles.estadoCancelada
+          item.estado === 'realizada' ? styles.estadoRealizada : 
+          item.estado === 'cancelada' ? styles.estadoCancelada : 
+          styles.estadoNoRealizada
         ]}
       >
         Estado: {item.estado}
       </Text>
 
       {item.estado === 'realizada' && (
-        <TouchableOpacity
-          style={styles.feedbackButton}
-          onPress={() => router.push({ pathname: '/tutor/Retroalimentacion', params: { citaId: item.id } })}
-        >
-          <MaterialIcons name="rate-review" size={18} color={COLORS.primary} />
-          <Text style={styles.feedbackButtonText}>Dar retroalimentación</Text>
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity
+            style={styles.feedbackButton}
+            onPress={() => router.push({ pathname: '/tutor/Retroalimentacion', params: { citaId: item.id } })}
+          >
+            <MaterialIcons name="rate-review" size={18} color={COLORS.primary} />
+            <Text style={styles.feedbackButtonText}>Dar retroalimentación</Text>
+          </TouchableOpacity>
+
+          {item.retroalimentacion && (
+            <TouchableOpacity 
+              onPress={() => setRetroVisibleId(prev => prev === item.id ? null : item.id)} 
+              style={styles.retroButton}
+            >
+              <MaterialIcons name="comment" size={16} color={COLORS.primary} />
+              <Text style={styles.retroText}>
+                {retroVisibleId === item.id ? 'Ocultar retroalimentación' : 'Ver retroalimentación'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {retroVisibleId === item.id && item.retroalimentacion && (
+            <View style={styles.retroBox}>
+              <Text style={styles.retroLabel}>Comentario:</Text>
+              <Text style={styles.retroContent}>{item.retroalimentacion}</Text>
+            </View>
+          )}
+        </>
       )}
     </View>
   );
 
   return (
-    <View style={styles.mainContainer}>
+    <View style={styles.container}>
       <View style={styles.fullWidthHeader}>
         <HeaderAuth />
       </View>
 
-      <View style={styles.contentContainer}>
+      <View style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.title}>Citas Anteriores</Text>
-          <Text style={styles.subtitle}>Historial de citas realizadas o canceladas</Text>
+          <Text style={styles.subtitle}>Historial de citas realizadas o no realizadas</Text>
+        </View>
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'realizadas' && styles.activeTab]} 
+            onPress={() => setActiveTab('realizadas')}
+          >
+            <Text style={[styles.tabText, activeTab === 'realizadas' && styles.activeTabText]}>Realizadas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'noRealizadas' && styles.activeTab]} 
+            onPress={() => setActiveTab('noRealizadas')}
+          >
+            <Text style={[styles.tabText, activeTab === 'noRealizadas' && styles.activeTabText]}>No Realizadas</Text>
+          </TouchableOpacity>
         </View>
 
         {loading ? (
@@ -121,7 +172,11 @@ export default function CitasAnteriores() {
             <ActivityIndicator size="large" color={COLORS.primary} />
           </View>
         ) : citas.length === 0 ? (
-          <Text style={styles.emptyText}>No hay citas anteriores registradas.</Text>
+          <Text style={styles.emptyText}>
+            {activeTab === 'realizadas' 
+              ? 'No hay citas realizadas registradas.' 
+              : 'No hay citas no realizadas registradas.'}
+          </Text>
         ) : (
           <FlatList
             data={citas}
@@ -145,31 +200,56 @@ export default function CitasAnteriores() {
 }
 
 const styles = StyleSheet.create({
-  mainContainer: {
+  container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: '#F8FAFC',
   },
   fullWidthHeader: {
     width: '100%',
   },
-  contentContainer: {
+  content: {
     flex: 1,
     padding: 16,
+    paddingTop: 24,
   },
   header: {
     marginBottom: 24,
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: COLORS.primary,
-    textAlign: 'center',
+    color: '#3A557C',
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: COLORS.lightText,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 4,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#F5F7FA',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: '#3A557C',
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  activeTabText: {
+    color: '#FFFFFF',
   },
   loadingContainer: {
     flex: 1,
@@ -178,7 +258,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: COLORS.lightText,
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 40,
   },
@@ -193,17 +273,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderTopWidth: 4,
-    borderTopColor: COLORS.primary,
+    borderTopColor: '#3A557C',
   },
   nombre: {
     fontSize: 18,
     fontWeight: '600',
-    color: COLORS.text,
+    color: '#1A1A1A',
     marginBottom: 6,
   },
   info: {
     fontSize: 14,
-    color: COLORS.text,
+    color: '#1A1A1A',
     marginBottom: 4,
   },
   estado: {
@@ -212,10 +292,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   estadoRealizada: {
-    color: 'green',
+    color: '#10B981',
+  },
+  estadoNoRealizada: {
+    color: '#F59E0B',
   },
   estadoCancelada: {
-    color: 'red',
+    color: '#EF4444',
   },
   feedbackButton: {
     flexDirection: 'row',
@@ -226,8 +309,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.primary,
-    shadowColor: COLORS.primary,
+    borderColor: '#3A557C',
+    shadowColor: '#3A557C',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
@@ -235,8 +318,35 @@ const styles = StyleSheet.create({
   },
   feedbackButtonText: {
     marginLeft: 6,
-    color: COLORS.primary,
+    color: '#3A557C',
     fontWeight: '700',
+    fontSize: 14,
+  },
+  retroButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  retroText: {
+    color: '#3A557C',
+    marginLeft: 6,
+    fontWeight: '600',
+  },
+  retroBox: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginTop: 10,
+  },
+  retroLabel: {
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  retroContent: {
+    color: '#1A1A1A',
     fontSize: 14,
   },
   backButton: {
@@ -246,10 +356,10 @@ const styles = StyleSheet.create({
     marginTop: 24,
     padding: 12,
     borderRadius: 8,
-    backgroundColor: COLORS.buttonBg,
+    backgroundColor: '#F1F5F9',
   },
   backButtonText: {
-    color: COLORS.primary,
+    color: '#3A557C',
     fontWeight: '600',
     fontSize: 16,
     marginLeft: 8,

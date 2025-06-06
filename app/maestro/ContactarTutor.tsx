@@ -1,3 +1,4 @@
+//app/maestro/ContactarTutor.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
@@ -8,6 +9,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  updateDoc,
   where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -41,6 +43,7 @@ interface MensajeEnviado {
   tutorNombre: string;
   contenido: string;
   fecha: any;
+  estado?: string;
 }
 
 const COLORS = {
@@ -95,13 +98,16 @@ export default function ContactarTutor() {
           where('tipo', '==', 'mensaje')
         ));
 
-        const mensajesTemp: MensajeEnviado[] = mensajesSnap.docs.map(doc => ({
-          id: doc.id,
-          alumnoNombre: doc.data().alumnoNombre,
-          tutorNombre: doc.data().tutorNombre,
-          contenido: doc.data().contenido,
-          fecha: doc.data().fecha,
-        }));
+        const mensajesTemp: MensajeEnviado[] = mensajesSnap.docs
+          .map(doc => ({
+            id: doc.id,
+            alumnoNombre: doc.data().alumnoNombre,
+            tutorNombre: doc.data().tutorNombre,
+            contenido: doc.data().contenido,
+            fecha: doc.data().fecha,
+            estado: doc.data().estado || 'pendiente'
+          }))
+          .filter(m => m.estado !== 'eliminado');
 
         setAlumnos(alumnosTemp);
         setMensajes(mensajesTemp);
@@ -158,8 +164,17 @@ export default function ContactarTutor() {
     return fecha.toDate().toLocaleDateString('es-ES', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  const eliminarMensajeLocal = (id: string) => {
-    setMensajes((prevMensajes) => prevMensajes.filter((m) => m.id !== id));
+  const eliminarMensajeLocal = async (id: string) => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      const mensajeRef = doc(db, 'contactos_tutor', id);
+      await updateDoc(mensajeRef, { estado: 'eliminado' });
+      setMensajes((prevMensajes) => prevMensajes.filter((m) => m.id !== id));
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo eliminar el mensaje');
+    }
   };
 
   const renderMensaje = ({ item }: { item: MensajeEnviado }) => (
